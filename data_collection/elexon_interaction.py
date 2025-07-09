@@ -6,7 +6,12 @@ from elexonpy.api_client import ApiClient
 from elexonpy.api.indicative_imbalance_settlement_api import IndicativeImbalanceSettlementApi
 from elexonpy.api.bid_offer_api import BidOfferApi
 from elexonpy.api.balancing_mechanism_physical_api import BalancingMechanismPhysicalApi
+from elexonpy.api.market_index_api import MarketIndexApi
+from elexonpy.api.balancing_services_adjustment___net_api import BalancingServicesAdjustmentNetApi
 from elexonpy.rest import ApiException
+
+from data_processing.bm_physical_data_handler import get_physical_volume
+from ancillary_files.datetime_functions import add_settlement_date_to_end_of_list
 
 async def fetch_data_by_settlement_date(
     settlement_dates: list[str], 
@@ -20,11 +25,38 @@ async def fetch_data_by_settlement_date(
 
     for df in results:
         data = df.copy()
+        if data.empty:
+            continue
         if column_headers_to_keep is not None:
             data = data[column_headers_to_keep]
         data_dfs.append(data)
     
     return data_dfs
+
+async def fetch_data_from_and_to_date(
+    settlement_dates: list[str], 
+    api_function, 
+    column_headers: list[str] = None
+) -> list[pd.DataFrame]:
+        settlement_dates_copy = settlement_dates.copy()
+        extended_settlement_dates = add_settlement_date_to_end_of_list(settlement_dates_copy)
+        data_dfs = []
+        tasks = [
+            api_function(extended_settlement_dates[i], extended_settlement_dates[i+1], format='dataframe', async_req=True)
+            for i in range(len(settlement_dates))
+        ]
+        
+        results = await asyncio.gather(*[asyncio.to_thread(task.get) for task in tasks])
+
+        for df in results:
+            data = df.copy()
+            if data.empty:
+                continue
+            if column_headers is not None:
+                data = data[column_headers]
+            data_dfs.append(data)
+        
+        return data_dfs    
 
 async def get_niv_data(
     settlement_dates_and_periods_per_day: dict,
@@ -97,29 +129,53 @@ async def get_physical_volumes_by_bmu(
     bmus: list[str]):
     balancing_mechanism_physical_api = BalancingMechanismPhysicalApi(api_client)
     tasks = [balancing_mechanism_physical_api.balancing_physical_all_get(
-        'pn', settlement_date, settlement_period, format='dataframe', async_req=True),
+        'PN', settlement_date, settlement_period, format='dataframe', async_req=True),
              balancing_mechanism_physical_api.balancing_physical_all_get(
-        ct.ElexonDatasetNames.MELS.value, settlement_date, settlement_period, format='dataframe', async_req=True),
+        'MELS', settlement_date, settlement_period, format='dataframe', async_req=True),
                 balancing_mechanism_physical_api.balancing_physical_all_get(
-        ct.ElexonDatasetNames.MILS.value, settlement_date, settlement_period, format='dataframe', async_req=True)]
+        'MILS', settlement_date, settlement_period, format='dataframe', async_req=True)]
     results = await asyncio.gather(*[retry_api_call(task) for task in tasks])
     full_PN_data_one_period, full_MELS_data_one_period, full_MILS_data_one_period = results
     physical_volumes_by_bmu = {}
     for bmu in bmus:
-        PN_data = full_PN_data_one_period[full_PN_data_one_period[ct.ColumnHeaders.BM_UNIT.value] == bmu]
-        MELS_data = full_MELS_data_one_period[full_MELS_data_one_period[ct.ColumnHeaders.BM_UNIT.value] == bmu]
-        MILS_data = full_MILS_data_one_period[full_MILS_data_one_period[ct.ColumnHeaders.BM_UNIT.value] == bmu]
+        PN_data = full_PN_data_one_period[full_PN_data_one_period['bm_unit'] == bmu]
+        MELS_data = full_MELS_data_one_period[full_MELS_data_one_period['bm_unit'] == bmu]
+        MILS_data = full_MILS_data_one_period[full_MILS_data_one_period['bm_unit'] == bmu]
         
         scheduled_energy_delivery = get_physical_volume(PN_data)
         max_energy_delivery = get_physical_volume(MELS_data)
         max_energy_import = get_physical_volume(MILS_data)
         physical_volumes_by_bmu[bmu] = pd.Series({
-            ct.ElexonDatasetNames.PN.value: scheduled_energy_delivery,
-            ct.ElexonDatasetNames.MELS.value: max_energy_delivery,
-            ct.ElexonDatasetNames.MILS.value: max_energy_import
+            'PN': scheduled_energy_delivery,
+            'MELS': max_energy_delivery,
+            'MILS': max_energy_import
         })
         
     return physical_volumes_by_bmu
+
+async def get_full_midp_data(
+    api_client: ApiClient,
+    settlement_dates: list[str]
+) -> pd.DataFrame:
+    market_index_api = MarketIndexApi(api_client)
+    market_index_data = await fetch_data_from_and_to_date(settlement_dates, market_index_api.balancing_pricing_market_index_get, True)
+    combined_market_index_data = pd.concat(market_index_data)
+    
+    return combined_market_index_data
+
+async def get_price_adjustment_data(
+    columns_to_download_from_api: list[str], 
+    settlement_dates: list[str], 
+    api_client: ApiClient
+) -> pd.DataFrame:
+    net_bsad_api = BalancingServicesAdjustmentNetApi(api_client)
+    price_adjustment_data = await fetch_data_from_and_to_date(settlement_dates, net_bsad_api.balancing_nonbm_netbsad_get, True, columns_to_download_from_api)
+    if all(df.empty for df in price_adjustment_data):
+        print("All dataframes in price_adjustment_data are empty.")
+        return
+    combined_price_adjustment_data = pd.concat(price_adjustment_data)
+    
+    return combined_price_adjustment_data
 
 async def retry_api_call(task, max_retries=3, backoff=2):
     for attempt in range(1, max_retries + 1):

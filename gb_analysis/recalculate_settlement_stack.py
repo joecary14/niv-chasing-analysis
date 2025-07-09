@@ -2,6 +2,7 @@ import asyncio
 
 import data_collection.elexon_interaction as elexon_interaction
 import data_processing.stack_data_handler as stack_data_handler
+import data_processing.bm_unit as bm_unit
 import pandas as pd
 
 from elexonpy.api_client import ApiClient
@@ -36,22 +37,33 @@ async def process_settlement_period(
     
     return (settlement_date, settlement_period), new_settlement_stack
 
-async def get_new_settlement_stack_one_period(api_client, settlement_date, settlement_period, system_imbalance_with_and_without_npts_one_period, full_ascending_settlement_stack_one_period):
+async def get_new_settlement_stack_one_period(
+    api_client: ApiClient, 
+    settlement_date: str, 
+    settlement_period: int, 
+    system_imbalance_with_and_without_npts_one_period: pd.DataFrame, 
+    full_ascending_settlement_stack_one_period: pd.DataFrame
+) -> pd.DataFrame:
     if full_ascending_settlement_stack_one_period.empty:
         return pd.DataFrame()
     
     bid_offer_data_one_period = await elexon_interaction.get_bid_offer_pairs_data_one_period(api_client, settlement_date, settlement_period)
     grouped_bid_offer_data_one_period = bid_offer_data_one_period.groupby('bm_unit')
     bmus = grouped_bid_offer_data_one_period.groups.keys()
-    physical_volumes_by_bmu = await data_downloader.get_physical_volumes_by_bmu(api_client, settlement_date, settlement_period, bmus)
+    physical_volumes_by_bmu = await elexon_interaction.get_physical_volumes_by_bmu(api_client, settlement_date, settlement_period, bmus)
     bmus = stack_data_handler.get_bmus_one_period(grouped_bid_offer_data_one_period, full_ascending_settlement_stack_one_period, physical_volumes_by_bmu)
     new_settlement_stack = recalculate_settlement_stack_one_period(system_imbalance_with_and_without_npts_one_period, full_ascending_settlement_stack_one_period, bid_offer_data_one_period, bmus)
     
     return new_settlement_stack
         
-def recalculate_settlement_stack_one_period(system_imbalance_with_and_without_npts_one_period, full_ascending_settlement_stack_one_period, bid_offer_data_one_period, bmus):
-    system_imbalance_with_npts = system_imbalance_with_and_without_npts_one_period[ct.ColumnHeaders.SYSTEM_NET_IMBALANCE_VOLUME.value].values[0]
-    system_imbalance_without_npts = system_imbalance_with_and_without_npts_one_period[ct.ColumnHeaders.NIV_WITHOUT_NPTS.value].values[0]
+def recalculate_settlement_stack_one_period(
+    system_imbalance_with_and_without_npts_one_period: pd.DataFrame, 
+    full_ascending_settlement_stack_one_period: pd.DataFrame, 
+    bid_offer_data_one_period: pd.DataFrame, 
+    bmus: list[str]
+) -> pd.DataFrame:
+    system_imbalance_with_npts = system_imbalance_with_and_without_npts_one_period['net_imbalance_volume'].values[0]
+    system_imbalance_without_npts = system_imbalance_with_and_without_npts_one_period['counterfactual_niv'].values[0]
     if(system_imbalance_with_npts > 0 and system_imbalance_without_npts > 0):
         return recalculate_settlement_stack_niv_with_and_without_positive(system_imbalance_with_npts, system_imbalance_without_npts, full_ascending_settlement_stack_one_period, 
                                                             bid_offer_data_one_period, bmus)
@@ -66,8 +78,13 @@ def recalculate_settlement_stack_one_period(system_imbalance_with_and_without_np
                                                                      bid_offer_data_one_period, bmus)
     
     
-def recalculate_settlement_stack_niv_with_and_without_positive(system_imbalance_with_npts, system_imbalance_without_npts, full_ascending_settlement_stack_one_period, 
-                                                                     bid_offer_data_one_period, bmus):
+def recalculate_settlement_stack_niv_with_and_without_positive(
+    system_imbalance_with_npts: float, 
+    system_imbalance_without_npts: float, 
+    full_ascending_settlement_stack_one_period: pd.DataFrame, 
+    bid_offer_data_one_period: pd.DataFrame, 
+    bmus: list[bm_unit.BMUnit]
+) -> pd.DataFrame:
     ascending_settlement_stack_for_calculation = full_ascending_settlement_stack_one_period.copy()
     if system_imbalance_without_npts > system_imbalance_with_npts:
         offer_stack = stack_data_handler.get_offer_stack_one_period(bid_offer_data_one_period)
@@ -81,8 +98,13 @@ def recalculate_settlement_stack_niv_with_and_without_positive(system_imbalance_
 
     return new_settlement_stack
 
-def recalculate_settlement_stack_niv_with_and_without_negative(system_imbalance_with_npts, system_imbalance_without_npts, full_ascending_settlement_stack_one_period, 
-                                                                     bid_offer_data_one_period, bmus):
+def recalculate_settlement_stack_niv_with_and_without_negative(
+    system_imbalance_with_npts: float, 
+    system_imbalance_without_npts: float, 
+    full_ascending_settlement_stack_one_period: pd.DataFrame, 
+    bid_offer_data_one_period: pd.DataFrame, 
+    bmus: list[bm_unit.BMUnit]
+) -> pd.DataFrame:
     ascending_settlement_stack_for_calculation = full_ascending_settlement_stack_one_period.copy()
     if system_imbalance_without_npts < system_imbalance_with_npts:
         bid_stack = stack_data_handler.get_bid_stack_one_period(bid_offer_data_one_period)
@@ -96,8 +118,13 @@ def recalculate_settlement_stack_niv_with_and_without_negative(system_imbalance_
     
     return new_settlement_stack
 
-def recalculate_settlement_stack_niv_with_positive_and_without_negative(system_imbalance_with_npts, system_imbalance_without_npts, full_ascending_settlement_stack_one_period, 
-                                                                              bid_offer_data_one_period, bmus):
+def recalculate_settlement_stack_niv_with_positive_and_without_negative(
+    system_imbalance_with_npts: float, 
+    system_imbalance_without_npts: float, 
+    full_ascending_settlement_stack_one_period: pd.DataFrame, 
+    bid_offer_data_one_period: pd.DataFrame, 
+    bmus: list[bm_unit.BMUnit]
+) -> pd.DataFrame:
     ascending_settlement_stack_for_calculation = full_ascending_settlement_stack_one_period.copy()
     stack_without_offers, total_offer_volume_removed = stack_data_handler.remove_offers_until_quota_met(system_imbalance_with_npts, 0, ascending_settlement_stack_for_calculation)
     remaining_volume_to_remove = system_imbalance_with_npts - total_offer_volume_removed
@@ -106,8 +133,13 @@ def recalculate_settlement_stack_niv_with_positive_and_without_negative(system_i
 
     return new_settlement_stack
 
-def recalculate_settlement_stack_niv_with_negative_and_without_positive(system_imbalance_with_npts, system_imbalance_without_npts, full_ascending_settlement_stack_one_period, 
-                                                                              bid_offer_data_one_period, bmus):
+def recalculate_settlement_stack_niv_with_negative_and_without_positive(
+    system_imbalance_with_npts: float, 
+    system_imbalance_without_npts: float, 
+    full_ascending_settlement_stack_one_period: pd.DataFrame, 
+    bid_offer_data_one_period: pd.DataFrame, 
+    bmus: list[bm_unit.BMUnit]
+) -> pd.DataFrame:
     ascending_settlement_stack_for_calculation = full_ascending_settlement_stack_one_period.copy()
     stack_without_bids, total_bid_volume_removed = stack_data_handler.remove_bids_until_quota_met(system_imbalance_with_npts, 0, ascending_settlement_stack_for_calculation)
     remaining_volume_to_remove = system_imbalance_with_npts - total_bid_volume_removed

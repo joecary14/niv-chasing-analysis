@@ -45,3 +45,12 @@ def get_settlement_periods_for_each_day_in_date_range(settlement_dates_inclusive
         settlement_periods_per_day[current_date] = settlement_periods_in_day
     
     return settlement_periods_per_day
+
+def add_settlement_date_to_end_of_list(settlement_dates_inclusive):
+    last_settlement_date = settlement_dates_inclusive[-1]
+    if type(last_settlement_date) == str:
+        last_settlement_date = datetime.strptime(last_settlement_date, '%Y-%m-%d')
+    additional_date = last_settlement_date + timedelta(days = 1)
+    if type(settlement_dates_inclusive[0]) == str:
+        additional_date = additional_date.strftime('%Y-%m-%d')
+    return settlement_dates_inclusive + [additional_date]

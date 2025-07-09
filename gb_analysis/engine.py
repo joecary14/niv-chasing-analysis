@@ -1,13 +1,17 @@
 import datetime
 import calendar
+
+import pandas as pd
 import data_collection.elexon_interaction as elexon_interaction
+from  data_processing.price_data_processing import get_ancillary_price_data_for_sp_calculation
 import gb_analysis.recalculate_niv as recalculate_niv
 import gb_analysis.recalculate_settlement_stack as recalculate_settlement_stack
+from gb_analysis.system_price_from_stack import get_new_system_prices_by_date_and_period 
 import ancillary_files.datetime_functions as datetime_functions
 
 from ancillary_files import excel_interaction
 from elexonpy.api_client import ApiClient
-
+#TODO - add in intraday stats
 async def run(
     years: list,
     months: list, 
@@ -82,6 +86,8 @@ async def run_by_month(
     api_client = ApiClient()
     
     # Fetch data
+    #TODO - work out the TLMs adjustments
+    tlms_by_bmu = {}
     # tlms_by_bmu = await data_downloader.download_tlms_by_bmu()
     full_ascending_settlement_stack_by_date_and_period = await elexon_interaction.get_full_settlement_stacks_by_date_and_period(api_client, settlement_dates_with_periods_per_day)
     
@@ -89,8 +95,8 @@ async def run_by_month(
     system_imbalance_with_and_without_npts_df = await recalculate_niv.recalculate_niv(year, month, mr1b_filepath, bsc_roles_to_npt_mapping, output_directory)
     new_settlement_stacks_by_date_and_period = await recalculate_settlement_stack.recalculate_stacks(api_client, 
                                                     settlement_dates_with_periods_per_day, system_imbalance_with_and_without_npts_df, full_ascending_settlement_stack_by_date_and_period)
-    ancillary_price_data_for_sp_calculation = await data_downloader.download_price_data_for_sp_calculation(settlement_dates_and_periods_list)
-    new_system_prices_by_date_and_period_df = system_price_from_stack.get_new_system_prices_by_date_and_period(
+    ancillary_price_data_for_sp_calculation = await get_ancillary_price_data_for_sp_calculation()
+    new_system_prices_by_date_and_period_df = get_new_system_prices_by_date_and_period(
         new_settlement_stacks_by_date_and_period, ancillary_price_data_for_sp_calculation, tlms_by_bmu, system_imbalance_with_and_without_npts_df)
     system_price_df = await data_downloader.download_system_price_data_for_comparison(settlement_dates_and_periods_list)
     recalculated_system_prices = system_price_df.merge(
