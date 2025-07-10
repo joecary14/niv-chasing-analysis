@@ -9,7 +9,7 @@ from ancillary_files.datetime_functions import get_settlement_dates_and_settleme
 async def recalculate_niv(
     year: int,
     month: int,
-    mr1b_filepath: str,
+    mr1b_df: pd.DataFrame,
     bsc_roles_to_npt_mapping: str
 ) -> pd.DataFrame:
     api_client = ApiClient()
@@ -20,7 +20,7 @@ async def recalculate_niv(
     settlement_dates_and_periods_per_day = get_settlement_dates_and_settlement_periods_per_day(
         month_start_date, month_end_date, True)
     niv_data = await elexon_interaction.get_niv_data(settlement_dates_and_periods_per_day, api_client)
-    npt_imbalances = get_npt_imbalance_data(mr1b_filepath, bsc_roles_to_npt_mapping)
+    npt_imbalances = get_npt_imbalance_data(mr1b_df, bsc_roles_to_npt_mapping)
     niv_data.drop(columns=['start_time'], inplace=True)
     
     outturn_system_length = standardize_merge_columns(outturn_system_length)
@@ -53,10 +53,9 @@ def get_bsc_roles_to_npt_mapping(
     return bsc_id_to_npt_mapping
 
 def get_npt_imbalance_data(
-    mr1b_filepath: str,
+    mr1b_df: pd.DataFrame,
     bsc_roles_to_npt_mapping: dict
 ) -> pd.DataFrame:
-    mr1b_df = pd.read_excel(mr1b_filepath)
     mr1b_df = mr1b_df.map(lambda x: x.strip() if isinstance(x, str) else x)
     mr1b_df_npts_only = mr1b_df[mr1b_df['Party ID'].map(bsc_roles_to_npt_mapping) == True]
     settlement_dates = []

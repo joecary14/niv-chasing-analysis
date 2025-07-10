@@ -6,6 +6,8 @@ import data_collection.elexon_interaction as elexon_interaction
 from  data_processing.price_data_processing import get_ancillary_price_data_for_sp_calculation
 import gb_analysis.recalculate_niv as recalculate_niv
 import gb_analysis.recalculate_settlement_stack as recalculate_settlement_stack
+import gb_analysis.recalculate_balancing_cashflows as recalculate_balancing_cashflows
+import gb_analysis.recalculate_imbalance_cashflows as recalculate_imbalance_cashflows
 from gb_analysis.system_price_from_stack import get_new_system_prices_by_date_and_period 
 import ancillary_files.datetime_functions as datetime_functions
 
@@ -92,15 +94,16 @@ async def run_by_month(
     full_ascending_settlement_stack_by_date_and_period = await elexon_interaction.get_full_settlement_stacks_by_date_and_period(api_client, settlement_dates_with_periods_per_day)
     
     # Recalculate imbalance, stack, and system price
-    system_imbalance_with_and_without_npts_df = await recalculate_niv.recalculate_niv(year, month, mr1b_filepath, bsc_roles_to_npt_mapping, output_directory)
+    mr1b_df = pd.read_excel(mr1b_filepath)
+    system_imbalance_with_and_without_npts_df = await recalculate_niv.recalculate_niv(year, month, mr1b_df, bsc_roles_to_npt_mapping, output_directory)
     new_settlement_stacks_by_date_and_period = await recalculate_settlement_stack.recalculate_stacks(api_client, 
                                                     settlement_dates_with_periods_per_day, system_imbalance_with_and_without_npts_df, full_ascending_settlement_stack_by_date_and_period)
     ancillary_price_data_for_sp_calculation = await get_ancillary_price_data_for_sp_calculation()
     new_system_prices_by_date_and_period_df = get_new_system_prices_by_date_and_period(
         new_settlement_stacks_by_date_and_period, ancillary_price_data_for_sp_calculation, tlms_by_bmu, system_imbalance_with_and_without_npts_df)
-    system_price_df = await data_downloader.download_system_price_data_for_comparison(settlement_dates_and_periods_list)
+    system_price_df = system_imbalance_with_and_without_npts_df['settlement_date', 'settlement_period', 'system_sell_price']
     recalculated_system_prices = system_price_df.merge(
-        new_system_prices_by_date_and_period_df, on=[ct.ColumnHeaders.DATE_PERIOD_PRIMARY_KEY.value], how='outer'
+        new_system_prices_by_date_and_period_df, on=['settlement_date', 'settlement_period'], how='outer'
     )
     
     # Recalculate balancing cashflows
@@ -109,10 +112,11 @@ async def run_by_month(
         full_ascending_settlement_stack_by_date_and_period, new_settlement_stacks_by_date_and_period)
     
     # Recalculate imbalance cashflows
-    mr1b_data_df = await data_downloader.get_mr1b_data(settlement_dates_with_periods_per_day.keys())
-    so_cashflows_df = await recalculate_imbalance_cashflows.get_recalculated_imbalance_cashflows_SO(new_system_prices_by_date_and_period_df, mr1b_data_df)
-    supplier_cashflows_df = await recalculate_imbalance_cashflows.recalculate_imbalance_cashflows_by_bsc_party_type('ts', new_system_prices_by_date_and_period_df, mr1b_data_df)
-    generator_cashflows_df = await recalculate_imbalance_cashflows.recalculate_imbalance_cashflows_by_bsc_party_type('tg', new_system_prices_by_date_and_period_df, mr1b_data_df)
+    so_cashflows_df = await recalculate_imbalance_cashflows.get_recalculated_imbalance_cashflows_SO(new_system_prices_by_date_and_period_df, mr1b_df)
+    supplier_cashflows_df = await recalculate_imbalance_cashflows.recalculate_imbalance_cashflows_by_bsc_party_type('ts', new_system_prices_by_date_and_period_df, mr1b_df)
+    generator_cashflows_df = await recalculate_imbalance_cashflows.recalculate_imbalance_cashflows_by_bsc_party_type('tg', new_system_prices_by_date_and_period_df, mr1b_df)
+    
+    #TODO - add in intraday calculations
     
     #Output Monthly Data
     system_prices_df = excel_output.order_df_by_settlement_date_and_period_for_output(recalculated_system_prices)
