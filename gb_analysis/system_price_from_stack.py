@@ -13,7 +13,7 @@ def get_new_system_prices_by_date_and_period(
         price_data = ancillary_price_data[ancillary_price_data['settlement_date'] == settlement_date and ancillary_price_data['settlement_period'] == settlement_period]
         market_index_price = price_data['vwap_midp'].values[0]
         niv_without_npts = system_imbalance_with_and_without_npts_by_date_and_period[system_imbalance_with_and_without_npts_by_date_and_period['settlement_date'] == settlement_date and system_imbalance_with_and_without_npts_by_date_and_period['settlement_period'] == settlement_period]['counterfactual_niv'].values[0]
-        price_adjustment_column_header = 'BPA' if niv_without_npts > 0 else 'SPA'
+        price_adjustment_column_header = 'buy_price_adjustment' if niv_without_npts > 0 else 'sell_price_adjustment'
         price_adjustment = pd.to_numeric(price_data[price_adjustment_column_header].fillna(0), errors='coerce').values[0]
         new_system_price = get_new_system_price(new_settlement_stack, price_adjustment, market_index_price, tlm_by_bmu, niv_without_npts)
         system_prices.append((settlement_date, settlement_period, new_system_price))
@@ -40,7 +40,7 @@ def get_new_system_price(
     if ranked_set_for_calculation.empty:
         return market_index_price
     niv_adjusted_actions_only = ranked_set_for_calculation[ranked_set_for_calculation['niv_adjusted_volume'] != 0]
-    if niv_adjusted_actions_only['niv_adjusted_voklume'].sum() == 0:
+    if niv_adjusted_actions_only['niv_adjusted_volume'].sum() == 0:
         return market_index_price
     ranked_set_with_final_prices = replace_prices_for_second_stage_flagged_actions(niv_adjusted_actions_only, market_index_price, niv_without_npts)
     par_tagged_ranked_set = perform_par_tagging(ranked_set_with_final_prices, niv_without_npts)

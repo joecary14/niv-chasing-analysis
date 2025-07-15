@@ -74,9 +74,13 @@ async def get_niv_data(
     
     return niv_data
 
-async def get_full_settlement_stacks_by_date_and_period(api_client, settlement_dates_with_periods_per_day):
+async def get_full_settlement_stacks_by_date_and_period(
+    api_client: ApiClient, 
+    settlement_dates_with_periods_per_day: dict[str, int],
+    missing_data: set[tuple[str, int]]
+) -> dict[tuple[str, int], pd.DataFrame]:
     full_settlement_stacks_by_date_and_period = {}
-    tasks = [get_full_ascending_settlement_stack_one_period(api_client, settlement_date, settlement_period) 
+    tasks = [get_full_ascending_settlement_stack_one_period(api_client, settlement_date, settlement_period, missing_data) 
              for settlement_date, settlement_periods_in_day in settlement_dates_with_periods_per_day.items() for settlement_period in range(1, settlement_periods_in_day + 1)]
     results = await asyncio.gather(*tasks)
     
@@ -87,7 +91,8 @@ async def get_full_settlement_stacks_by_date_and_period(api_client, settlement_d
 async def get_full_ascending_settlement_stack_one_period(
     api_client: ApiClient, 
     settlement_date: str, 
-    settlement_period: int
+    settlement_period: int,
+    missing_data: set[tuple[str, int]]
 ) -> tuple[tuple[str, int], pd.DataFrame]:
     imbalance_settlement_api = IndicativeImbalanceSettlementApi(api_client)
     tasks = [
@@ -107,6 +112,7 @@ async def get_full_ascending_settlement_stack_one_period(
         full_ordered_settlement_stack_one_period.reset_index(drop=True, inplace=True)
     else:
         full_ordered_settlement_stack_one_period = pd.DataFrame()
+        missing_data.add((settlement_date, settlement_period))
     
     return ((settlement_date, settlement_period), full_ordered_settlement_stack_one_period)
 
@@ -171,8 +177,7 @@ async def get_price_adjustment_data(
     net_bsad_api = BalancingServicesAdjustmentNetApi(api_client)
     price_adjustment_data = await fetch_data_from_and_to_date(settlement_dates, net_bsad_api.balancing_nonbm_netbsad_get, True, columns_to_download_from_api)
     if all(df.empty for df in price_adjustment_data):
-        print("All dataframes in price_adjustment_data are empty.")
-        return
+        return pd.DataFrame()
     combined_price_adjustment_data = pd.concat(price_adjustment_data)
     
     return combined_price_adjustment_data

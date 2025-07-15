@@ -63,3 +63,14 @@ def create_filepath(
         file_path = create_filepath(file_directory, file_name)
         
     return file_path
+
+def order_df_by_settlement_date_and_period_for_output(
+    df: pd.DataFrame
+) -> pd.DataFrame:
+    df_copy = df.copy()
+    df_copy["settlement_date"] = pd.to_datetime(df_copy["settlement_date"], errors="coerce")
+    df_copy.sort_values(by=["settlement_date", "settlement_period"], inplace=True)
+    df_copy.drop(columns=["settlement_date", "settlement_period"], inplace=True)
+    df_copy.reset_index(drop=True, inplace=True)
+    
+    return df_copy

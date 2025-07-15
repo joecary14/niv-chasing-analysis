@@ -265,3 +265,16 @@ def remove_bids_until_quota_met(
     new_settlement_stack = ordered_settlement_stack_one_period.drop(row_indices_to_remove, axis=0)
 
     return new_settlement_stack, total_bid_volume_removed
+
+def check_missing_data(
+    dataframe_to_check: pd.DataFrame,
+    settlement_dates_with_periods_per_day: dict[str, int]
+) -> set[tuple[str, int]]:
+    complete_dates_and_periods = [(settlement_date, settlement_period) for settlement_date, periods_per_day in settlement_dates_with_periods_per_day.items() for settlement_period in range(1, periods_per_day + 1)]
+    complete_dates_and_periods_set = set(complete_dates_and_periods)
+    present_dates_and_periods = set(zip(dataframe_to_check['settlement_date'], dataframe_to_check['settlement_period']))
+    missing_dates_and_periods = complete_dates_and_periods_set - present_dates_and_periods
+    nan_rows = dataframe_to_check[dataframe_to_check.isna().any(axis=1)]
+    nan_tuples = set(zip(nan_rows['settlement_date'], nan_rows['settlement_period']))
+    missing_dates_and_periods.update(nan_tuples)
+    return missing_dates_and_periods

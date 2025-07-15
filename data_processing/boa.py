@@ -1,6 +1,7 @@
-#TODO - ch ange to a dataclass
+from dataclasses import dataclass
+
+@dataclass
 class Boa:
-    def __init__(self, plant_id, bid_offer_pair_id, accepted_price):
-        self.plant_id = plant_id
-        self.bid_offer_pair_id = bid_offer_pair_id
-        self.accepted_price = accepted_price
+    plant_id: str
+    bid_offer_pair_id: int
+    accepted_price: float

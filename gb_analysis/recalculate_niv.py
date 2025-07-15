@@ -1,43 +1,32 @@
-import datetime
-import calendar
 import pandas as pd
 from data_collection import elexon_interaction
 from elexonpy.api_client import ApiClient
-from ancillary_files import excel_interaction
-from ancillary_files.datetime_functions import get_settlement_dates_and_settlement_periods_per_day
+from data_processing.stack_data_handler import check_missing_data
 
 async def recalculate_niv(
-    year: int,
-    month: int,
+    settlement_dates_and_periods_per_day: dict[str, int],
     mr1b_df: pd.DataFrame,
-    bsc_roles_to_npt_mapping: str
+    bsc_roles_to_npt_mapping: str,
+    missing_data: set[tuple[str, int]]
 ) -> pd.DataFrame:
     api_client = ApiClient()
-    data = []   
-    month_start_date = datetime.date(year, month, 1).strftime('%Y-%m-%d')
-    _, last_day = calendar.monthrange(year, month)
-    month_end_date = datetime.date(year, month, last_day).strftime('%Y-%m-%d')
-    settlement_dates_and_periods_per_day = get_settlement_dates_and_settlement_periods_per_day(
-        month_start_date, month_end_date, True)
     niv_data = await elexon_interaction.get_niv_data(settlement_dates_and_periods_per_day, api_client)
     npt_imbalances = get_npt_imbalance_data(mr1b_df, bsc_roles_to_npt_mapping)
     niv_data.drop(columns=['start_time'], inplace=True)
     
-    outturn_system_length = standardize_merge_columns(outturn_system_length)
+    outturn_system_length = standardize_merge_columns(niv_data)
     npt_imbalances = standardize_merge_columns(npt_imbalances)
     
     combined_data = outturn_system_length.merge(
         npt_imbalances, 
         on=['settlement_date', 'settlement_period'], 
-        how='outer', 
-        suffixes=('', '_niv')
+        how='outer'
     )
     combined_data['counterfactual_niv'] = combined_data['net_imbalance_volume'] + combined_data['npt_total_imbalance']
-    data.append(combined_data)
-    
-    full_dataset = pd.concat(data, ignore_index=True)
+    missing_dates_and_periods = check_missing_data(combined_data, settlement_dates_and_periods_per_day)
+    missing_data.update(missing_dates_and_periods)
 
-    return full_dataset
+    return combined_data
 
 def get_bsc_roles_to_npt_mapping(
     bsc_roles_filepath: str,
@@ -51,6 +40,32 @@ def get_bsc_roles_to_npt_mapping(
         bsc_id_to_npt_mapping[row['BSC_ID']] = is_strict_npt if strict_npt_mapping else is_npt
         
     return bsc_id_to_npt_mapping
+
+def get_bsc_roles_to_supplier_mapping(
+    bsc_roles_filepath: str,
+    strict_supplier_mapping: bool
+) -> dict[str, bool]:
+    bsc_roles_df = pd.read_excel(bsc_roles_filepath)
+    bsc_id_to_supplier_mapping = {}
+    for _, row in bsc_roles_df.iterrows():
+        is_supplier = row['TS']
+        is_strict_supplier = is_supplier and not row['TN'] and not row['TG']
+        bsc_id_to_supplier_mapping[row['BSC_ID']] = is_strict_supplier if strict_supplier_mapping else is_supplier
+        
+    return bsc_id_to_supplier_mapping
+
+def get_bsc_roles_to_generator_mapping(
+    bsc_roles_filepath: str,
+    strict_generator_mapping: bool
+) -> dict[str, bool]:
+    bsc_roles_df = pd.read_excel(bsc_roles_filepath)
+    bsc_id_to_generator_mapping = {}
+    for _, row in bsc_roles_df.iterrows():
+        is_generator = row['TG']
+        is_strict_generator = is_generator and not row['TN'] and not row['TS']
+        bsc_id_to_generator_mapping[row['BSC_ID']] = is_strict_generator if strict_generator_mapping else is_generator
+        
+    return bsc_id_to_generator_mapping
 
 def get_npt_imbalance_data(
     mr1b_df: pd.DataFrame,

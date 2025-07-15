@@ -11,12 +11,13 @@ async def recalculate_stacks(
     api_client: ApiClient, 
     settlement_dates_with_periods_per_day : dict, 
     system_imbalance_with_and_without_npts_by_date_and_period : pd.DataFrame, 
-    full_ascending_settlement_stack_by_date_and_period : dict
+    full_ascending_settlement_stack_by_date_and_period : dict,
+    missing_data: set[tuple[str, int]]
 ) -> dict:
     tasks = []
     for settlement_date, settlement_periods_in_day in settlement_dates_with_periods_per_day.items():
         for settlement_period in range(1, settlement_periods_in_day + 1):
-            tasks.append(asyncio.create_task(process_settlement_period(api_client, settlement_date, settlement_period, system_imbalance_with_and_without_npts_by_date_and_period, full_ascending_settlement_stack_by_date_and_period)))
+            tasks.append(asyncio.create_task(process_settlement_period(api_client, settlement_date, settlement_period, system_imbalance_with_and_without_npts_by_date_and_period, full_ascending_settlement_stack_by_date_and_period, missing_data)))
     results = await asyncio.gather(*tasks)
     new_settlement_stack_by_date_and_period = {(settlement_date, settlement_period): new_settlement_stack_one_period 
                                                for (settlement_date, settlement_period), new_settlement_stack_one_period in results}    
@@ -28,11 +29,12 @@ async def process_settlement_period(
     settlement_date: str, 
     settlement_period: int, 
     system_imbalance_df: pd.DataFrame, 
-    full_settlement_stacks_by_date_and_period: dict[tuple[str, int], pd.DataFrame]
+    full_settlement_stacks_by_date_and_period: dict[tuple[str, int], pd.DataFrame],
+    missing_data: set[tuple[str, int]]
 ) -> tuple[tuple[str, int], pd.DataFrame]:
-    system_imbalance_with_and_without_npts_one_period = system_imbalance_df[system_imbalance_df['settlmenet_date'] == settlement_date and system_imbalance_df['settlement_period'] == settlement_period]
+    system_imbalance_with_and_without_npts_one_period = system_imbalance_df[system_imbalance_df['settlement_date'] == settlement_date and system_imbalance_df['settlement_period'] == settlement_period]
     full_ascending_settlement_stack_one_period = full_settlement_stacks_by_date_and_period[(settlement_date, settlement_period)]
-    new_settlement_stack = await get_new_settlement_stack_one_period(api_client, settlement_date, settlement_period, system_imbalance_with_and_without_npts_one_period, full_ascending_settlement_stack_one_period)
+    new_settlement_stack = await get_new_settlement_stack_one_period(api_client, settlement_date, settlement_period, system_imbalance_with_and_without_npts_one_period, full_ascending_settlement_stack_one_period, missing_data)
     print(f"Recalculated stack for {settlement_date}, period {settlement_period}")
     
     return (settlement_date, settlement_period), new_settlement_stack
@@ -42,12 +44,17 @@ async def get_new_settlement_stack_one_period(
     settlement_date: str, 
     settlement_period: int, 
     system_imbalance_with_and_without_npts_one_period: pd.DataFrame, 
-    full_ascending_settlement_stack_one_period: pd.DataFrame
+    full_ascending_settlement_stack_one_period: pd.DataFrame,
+    missing_data: set[tuple[str, int]]
 ) -> pd.DataFrame:
     if full_ascending_settlement_stack_one_period.empty:
+        missing_data.add((settlement_date, settlement_period))
         return pd.DataFrame()
     
     bid_offer_data_one_period = await elexon_interaction.get_bid_offer_pairs_data_one_period(api_client, settlement_date, settlement_period)
+    if bid_offer_data_one_period.empty:
+        missing_data.add((settlement_date, settlement_period))
+        return pd.DataFrame()
     grouped_bid_offer_data_one_period = bid_offer_data_one_period.groupby('bm_unit')
     bmus = grouped_bid_offer_data_one_period.groups.keys()
     physical_volumes_by_bmu = await elexon_interaction.get_physical_volumes_by_bmu(api_client, settlement_date, settlement_period, bmus)
