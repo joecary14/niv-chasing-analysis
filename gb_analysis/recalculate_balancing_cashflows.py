@@ -53,7 +53,7 @@ def get_balancing_revenue_df(
     
     pivot_df = combined_df.pivot_table(
         index=['settlement_date', 'settlement_period'], 
-        columns='BMU_GROUP', 
+        columns='bmu_group', 
         values='revenue', 
         aggfunc='sum', 
         fill_value=0

@@ -18,6 +18,9 @@ def get_new_system_prices_by_date_and_period(
             (ancillary_price_data_copy['settlement_date'] == settlement_date) & 
             (ancillary_price_data_copy['settlement_period'] == settlement_period)
         ]
+        if price_data.empty:
+            system_prices.append((settlement_date, settlement_period, None))
+            continue
         market_index_price = price_data['vwap_midp'].values[0]
         niv_without_npts = system_imbalance_with_and_without_npts_copy[
             (system_imbalance_with_and_without_npts_copy['settlement_date'] == settlement_date) & 
