@@ -16,7 +16,8 @@ from ancillary_files.datetime_functions import add_settlement_date_to_end_of_lis
 async def fetch_data_by_settlement_date(
     settlement_dates: list[str], 
     api_function, 
-    column_headers_to_keep: list[str] = None):
+    column_headers_to_keep: list[str] = None
+) -> list[pd.DataFrame]:
     data_dfs = []
     tasks = [api_function(date, format = 'dataframe', async_req=True) 
              for date in settlement_dates]
@@ -38,25 +39,25 @@ async def fetch_data_from_and_to_date(
     api_function, 
     column_headers: list[str] = None
 ) -> list[pd.DataFrame]:
-        settlement_dates_copy = settlement_dates.copy()
-        extended_settlement_dates = add_settlement_date_to_end_of_list(settlement_dates_copy)
-        data_dfs = []
-        tasks = [
-            api_function(extended_settlement_dates[i], extended_settlement_dates[i+1], format='dataframe', async_req=True)
-            for i in range(len(settlement_dates))
-        ]
-        
-        results = await asyncio.gather(*[asyncio.to_thread(task.get) for task in tasks])
+    settlement_dates_copy = settlement_dates.copy()
+    extended_settlement_dates = add_settlement_date_to_end_of_list(settlement_dates_copy)
+    data_dfs = []
+    tasks = [
+        api_function(extended_settlement_dates[i], extended_settlement_dates[i+1], format='dataframe', async_req=True)
+        for i in range(len(settlement_dates))
+    ]
+    
+    results = await asyncio.gather(*[asyncio.to_thread(task.get) for task in tasks])
 
-        for df in results:
-            data = df.copy()
-            if data.empty:
-                continue
-            if column_headers is not None:
-                data = data[column_headers]
-            data_dfs.append(data)
-        
-        return data_dfs    
+    for df in results:
+        data = df.copy()
+        if data.empty:
+            continue
+        if column_headers is not None:
+            data = data[column_headers]
+        data_dfs.append(data)
+    
+    return data_dfs    
 
 async def get_niv_data(
     settlement_dates_and_periods_per_day: dict,
@@ -66,8 +67,7 @@ async def get_niv_data(
     niv_data_dfs = await fetch_data_by_settlement_date(
         settlement_dates_and_periods_per_day.keys(),
         imbalance_api.balancing_settlement_system_prices_settlement_date_get,
-        generate_primary_key=False,
-        column_headers_to_keep=['start_time', 'settlement_date', 'settlement_period', 'net_imbalance_volume', 'system_sell_price'],
+        column_headers_to_keep=['start_time', 'settlement_date', 'settlement_period', 'net_imbalance_volume', 'system_sell_price']
     )
     
     niv_data = pd.concat(niv_data_dfs, ignore_index=True)
@@ -164,7 +164,7 @@ async def get_full_midp_data(
     settlement_dates: list[str]
 ) -> pd.DataFrame:
     market_index_api = MarketIndexApi(api_client)
-    market_index_data = await fetch_data_from_and_to_date(settlement_dates, market_index_api.balancing_pricing_market_index_get, True)
+    market_index_data = await fetch_data_from_and_to_date(settlement_dates, market_index_api.balancing_pricing_market_index_get)
     combined_market_index_data = pd.concat(market_index_data)
     
     return combined_market_index_data
@@ -175,7 +175,7 @@ async def get_price_adjustment_data(
     api_client: ApiClient
 ) -> pd.DataFrame:
     net_bsad_api = BalancingServicesAdjustmentNetApi(api_client)
-    price_adjustment_data = await fetch_data_from_and_to_date(settlement_dates, net_bsad_api.balancing_nonbm_netbsad_get, True, columns_to_download_from_api)
+    price_adjustment_data = await fetch_data_from_and_to_date(settlement_dates, net_bsad_api.balancing_nonbm_netbsad_get, columns_to_download_from_api)
     if all(df.empty for df in price_adjustment_data):
         return pd.DataFrame()
     combined_price_adjustment_data = pd.concat(price_adjustment_data)

@@ -11,7 +11,7 @@ class BMUnit:
         remaining_volume_by_pair = {}
         positive_pair_ids = sorted([pair_id for pair_id in self.bid_offer_pairs_submitted.keys() if pair_id > 0])
         negative_pair_ids = sorted([pair_id for pair_id in self.bid_offer_pairs_submitted.keys() if pair_id < 0], reverse=True)
-        max_energy_export = self.physical_volumes['MeLS']
+        max_energy_export = self.physical_volumes['MELS']
         max_energy_import = self.physical_volumes['MILS']
         scheduled_energy_delivery = self.physical_volumes['PN']
         for pair_index in range(len(positive_pair_ids)):

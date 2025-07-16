@@ -9,7 +9,7 @@ def get_bmus_one_period(
     full_settlement_stack_one_period: pd.DataFrame, 
     physical_volumes_by_bmu: dict[str, pd.Series]
 ) -> dict[str, bm_unit.BMUnit]:
-    grouped_full_settlement_stack = full_settlement_stack_one_period.groupby('ID')
+    grouped_full_settlement_stack = full_settlement_stack_one_period.groupby('id')
     bmus = populate_bmu_objects_one_period(grouped_bid_offer_data_one_period, grouped_full_settlement_stack, physical_volumes_by_bmu)
     
     return bmus
@@ -91,7 +91,7 @@ def get_marginal_plant_bid_row(
 ) -> pd.Series:
     for i in range(len(ordered_unflagged_bids)):
         row = ordered_unflagged_bids.iloc[i]
-        plant_id = row['ID']
+        plant_id = row['id']
         plant_bid_id = row['bid_offer_pair_id']
         dmat_adjusted_volume = row['dmat_adjusted_volume']
         if plant_id is not None and plant_bid_id is not None and dmat_adjusted_volume < 0:

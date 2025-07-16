@@ -74,3 +74,14 @@ def order_df_by_settlement_date_and_period_for_output(
     df_copy.reset_index(drop=True, inplace=True)
     
     return df_copy
+
+def create_dict_from_excel(
+    filepath: str,
+    key_column: str,
+    value_column: str
+) -> dict:
+    df = pd.read_excel(filepath)
+    df.dropna()
+    dictionary = df.set_index(key_column).to_dict()[value_column]
+    
+    return dictionary

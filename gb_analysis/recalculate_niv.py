@@ -28,17 +28,19 @@ async def recalculate_niv(
 
     return combined_data
 
-def get_bsc_roles_to_npt_mapping(
+def get_bsc_id_to_npt_mapping(
     bsc_roles_filepath: str,
     strict_npt_mapping: bool
 ) -> dict[str, bool]:
     bsc_roles_df = pd.read_excel(bsc_roles_filepath)
-    bsc_id_to_npt_mapping = {}
-    for _, row in bsc_roles_df.iterrows():
-        is_npt = row['TN']
-        is_strict_npt = is_npt and not row['TS'] and not row['TG']
-        bsc_id_to_npt_mapping[row['BSC_ID']] = is_strict_npt if strict_npt_mapping else is_npt
-        
+    
+    if strict_npt_mapping:
+        mask = bsc_roles_df['TN'] & ~bsc_roles_df['TS'] & ~bsc_roles_df['TG']
+    else:
+        mask = bsc_roles_df['TN']
+    
+    bsc_id_to_npt_mapping = dict(zip(bsc_roles_df['BSC_ID'], mask))
+    
     return bsc_id_to_npt_mapping
 
 def get_bsc_roles_to_supplier_mapping(
