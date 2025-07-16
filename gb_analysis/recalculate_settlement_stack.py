@@ -9,9 +9,9 @@ from elexonpy.api_client import ApiClient
 
 async def recalculate_stacks(
     api_client: ApiClient, 
-    settlement_dates_with_periods_per_day : dict, 
+    settlement_dates_with_periods_per_day : dict[str, int], 
     system_imbalance_with_and_without_npts_by_date_and_period : pd.DataFrame, 
-    full_ascending_settlement_stack_by_date_and_period : dict,
+    full_ascending_settlement_stack_by_date_and_period : dict[tuple[str, int], pd.DataFrame],
     missing_data: set[tuple[str, int]]
 ) -> dict:
     new_settlement_stacks_by_date_and_period = {}

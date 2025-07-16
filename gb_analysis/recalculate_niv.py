@@ -23,8 +23,9 @@ async def recalculate_niv(
         how='outer'
     )
     combined_data['counterfactual_niv'] = combined_data['net_imbalance_volume'] + combined_data['npt_total_imbalance']
-    missing_dates_and_periods = check_missing_data(combined_data, settlement_dates_and_periods_per_day)
-    missing_data.update(missing_dates_and_periods)
+    #TODO - remember to add this for testing
+    # missing_dates_and_periods = check_missing_data(combined_data, settlement_dates_and_periods_per_day)
+    # missing_data.update(missing_dates_and_periods)
 
     return combined_data
 

@@ -9,6 +9,7 @@ import gb_analysis.recalculate_settlement_stack as recalculate_settlement_stack
 import gb_analysis.recalculate_balancing_cashflows as recalculate_balancing_cashflows
 import gb_analysis.recalculate_imbalance_cashflows as recalculate_imbalance_cashflows
 import gb_analysis.calculate_npt_profit as calculate_npt_profit
+import gb_analysis.carbon_emissions as carbon_emissions
 from gb_analysis.system_price_from_stack import get_new_system_prices_by_date_and_period 
 import ancillary_files.datetime_functions as datetime_functions
 
@@ -21,6 +22,7 @@ async def run(
     output_directory: str,
     bsc_roles_filepath: str,
     tlms_filepath: str,
+    bmu_to_carbon_intensity_filepath: str,
     strict_npt: bool,
     strict_supplier: bool,
     strict_generator: bool
@@ -34,6 +36,7 @@ async def run(
     supplier_cashflows = []
     generator_cashflows = []
     npt_cashflows = []
+    mefs = []
     all_missing_data = set()
     mr1b_filepaths = excel_interaction.get_excel_filepaths('/Users/josephcary/Library/CloudStorage/OneDrive-Nexus365/First Year/Data/Elexon/MR1B Excel Reports')
     filepath_dict = excel_interaction.create_filepath_dict(mr1b_filepaths)
@@ -41,13 +44,15 @@ async def run(
     bsc_id_to_supplier_mapping = recalculate_niv.get_bsc_roles_to_supplier_mapping(bsc_roles_filepath, strict_supplier)
     bsc_id_to_generator_mapping = recalculate_niv.get_bsc_roles_to_generator_mapping(bsc_roles_filepath, strict_generator)
     tlms_by_bmu = excel_interaction.create_dict_from_excel(tlms_filepath, 'BM Unit ID', 'TLM')
+    bmu_id_to_ci_dict = excel_interaction.create_dict_from_excel(bmu_to_carbon_intensity_filepath, 'BMU_ID', 'Carbon Intensity')
     for year in years:
         for month in months:
             year_month = datetime.date(year, month, 1).strftime('%Y-%m')
             mr1b_filepath = filepath_dict[year_month.replace('-', '_')]
-            await run_by_month(month, year, bsc_id_to_npt_mapping, bsc_id_to_supplier_mapping, bsc_id_to_generator_mapping, tlms_by_bmu, mr1b_filepath, output_directory,
-                               system_prices, system_imbalances, balancing_costs, original_balancing_revenue, new_balancing_revenue,
-                               so_cashflows, supplier_cashflows, generator_cashflows, npt_cashflows, all_missing_data)
+            await run_by_month(
+                month, year, bsc_id_to_npt_mapping, bsc_id_to_supplier_mapping, bsc_id_to_generator_mapping, tlms_by_bmu, bmu_id_to_ci_dict, 
+                mr1b_filepath, output_directory, system_prices, system_imbalances, balancing_costs, original_balancing_revenue, 
+                new_balancing_revenue, so_cashflows, supplier_cashflows, generator_cashflows, npt_cashflows, mefs, all_missing_data)
     
     system_prices_df = excel_interaction.order_df_by_settlement_date_and_period_for_output(pd.concat(system_prices))
     system_imbalances_df = excel_interaction.order_df_by_settlement_date_and_period_for_output(pd.concat(system_imbalances))
@@ -84,6 +89,7 @@ async def run_by_month(
     bsc_roles_to_supplier_mapping : dict[str, bool],
     bsc_roles_to_generator_mapping : dict[str, bool],
     tlms_by_bmu: dict[str, float],
+    bmu_id_to_ci_mapping: dict[str, float],
     mr1b_filepath: str, 
     output_directory: str, 
     system_prices: list, 
@@ -95,12 +101,16 @@ async def run_by_month(
     supplier_cashflows: list, 
     generator_cashflows: list,
     npt_cashflows: list,
+    mefs: list,
     all_missing_data: set[tuple[str, int]]
 ) -> None:
-    month_start_date = datetime.date(year, month, 1).strftime('%Y-%m-%d')
-    _, last_day = calendar.monthrange(year, month)
-    month_end_date = datetime.date(year, month, last_day).strftime('%Y-%m-%d')
-    settlement_dates_with_periods_per_day = datetime_functions.get_settlement_dates_and_settlement_periods_per_day(month_start_date, month_end_date)
+    # month_start_date = datetime.date(year, month, 1).strftime('%Y-%m-%d')
+    # _, last_day = calendar.monthrange(year, month)
+    # month_end_date = datetime.date(year, month, last_day).strftime('%Y-%m-%d')
+    # settlement_dates_with_periods_per_day = datetime_functions.get_settlement_dates_and_settlement_periods_per_day(month_start_date, month_end_date)
+    #Test Code
+    settlement_dates_with_periods_per_day = {'2024-10-01': 48}
+    #End Test Code
     api_client = ApiClient()
     missing_data_points = set()
     
@@ -113,7 +123,7 @@ async def run_by_month(
                                                     settlement_dates_with_periods_per_day, system_imbalance_with_and_without_npts_df, full_ascending_settlement_stack_by_date_and_period, missing_data_points)
     new_system_prices_by_date_and_period_df = get_new_system_prices_by_date_and_period(
         new_settlement_stacks_by_date_and_period, ancillary_price_data_for_sp_calculation, tlms_by_bmu, system_imbalance_with_and_without_npts_df)
-    system_price_df = system_imbalance_with_and_without_npts_df['settlement_date', 'settlement_period', 'system_sell_price']
+    system_price_df = system_imbalance_with_and_without_npts_df[['settlement_date', 'settlement_period', 'system_sell_price']]
     recalculated_system_prices = system_price_df.merge(
         new_system_prices_by_date_and_period_df, on=['settlement_date', 'settlement_period'], 
         how='outer'
@@ -129,6 +139,7 @@ async def run_by_month(
     supplier_cashflows_df = recalculate_imbalance_cashflows.recalculate_imbalance_cashflows_by_bsc_party_type(bsc_roles_to_supplier_mapping, new_system_prices_by_date_and_period_df, mr1b_df)
     generator_cashflows_df = recalculate_imbalance_cashflows.recalculate_imbalance_cashflows_by_bsc_party_type(bsc_roles_to_generator_mapping, new_system_prices_by_date_and_period_df, mr1b_df)
     npt_cashflows_df = recalculate_imbalance_cashflows.calculate_net_npt_cashflow(bsc_roles_to_npt_mapping, mr1b_df)
+    marginal_emissions_df = carbon_emissions.calculate_marginal_emissions(full_ascending_settlement_stack_by_date_and_period, new_settlement_stacks_by_date_and_period, system_imbalance_with_and_without_npts_df, bmu_id_to_ci_mapping)
     
     npt_intraday_position = calculate_npt_profit.calculate(system_imbalance_with_and_without_npts_df, ancillary_price_data_for_sp_calculation)
     supplier_generator_id_positions = npt_intraday_position.copy()
@@ -149,6 +160,7 @@ async def run_by_month(
     supplier_cashflows_df = excel_interaction.order_df_by_settlement_date_and_period_for_output(supplier_cashflows_df)
     generator_cashflows_df = excel_interaction.order_df_by_settlement_date_and_period_for_output(generator_cashflows_df)
     npt_welfare_df = excel_interaction.order_df_by_settlement_date_and_period_for_output(npt_welfare)
+    marginal_emissions_df = excel_interaction.order_df_by_settlement_date_and_period_for_output(marginal_emissions_df)
     
     sheet_names_dict = {
         'System Prices': system_prices_df,
@@ -159,7 +171,8 @@ async def run_by_month(
         'SO Cashflows': so_cashflows_df,
         'Supplier Cashflows': supplier_cashflows_df,
         'Generator Cashflows': generator_cashflows_df,
-        'NPT Welfare': npt_welfare_df
+        'NPT Welfare': npt_welfare_df,
+        'Marginal Emissions Factors': marginal_emissions_df,
     }
     excel_interaction.dataframes_to_excel(
         sheet_names_dict.values(), output_directory, f'{year}-{month}', sheet_names_dict.keys())
@@ -175,5 +188,6 @@ async def run_by_month(
     supplier_cashflows.append(supplier_cashflows_df)
     generator_cashflows.append(generator_cashflows_df)
     npt_cashflows.append(npt_welfare_df)
+    mefs.append(marginal_emissions_df)
     all_missing_data.update(missing_data_points)
     

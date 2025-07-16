@@ -9,12 +9,22 @@ def get_new_system_prices_by_date_and_period(
     system_imbalance_with_and_without_npts_by_date_and_period: pd.DataFrame
 ) -> pd.DataFrame:
     system_prices = []
+    ancillary_price_data_copy = ancillary_price_data.copy()
+    ancillary_price_data_copy['settlement_date'] = pd.to_datetime(ancillary_price_data_copy['settlement_date']).dt.strftime('%Y-%m-%d')
+    system_imbalance_with_and_without_npts_copy = system_imbalance_with_and_without_npts_by_date_and_period.copy()
+    system_imbalance_with_and_without_npts_copy['settlement_date'] = pd.to_datetime(system_imbalance_with_and_without_npts_copy['settlement_date']).dt.strftime('%Y-%m-%d')
     for (settlement_date, settlement_period), new_settlement_stack in new_settlement_stacks_by_date_and_period.items():
-        price_data = ancillary_price_data[ancillary_price_data['settlement_date'] == settlement_date and ancillary_price_data['settlement_period'] == settlement_period]
+        price_data = ancillary_price_data_copy[
+            (ancillary_price_data_copy['settlement_date'] == settlement_date) & 
+            (ancillary_price_data_copy['settlement_period'] == settlement_period)
+        ]
         market_index_price = price_data['vwap_midp'].values[0]
-        niv_without_npts = system_imbalance_with_and_without_npts_by_date_and_period[system_imbalance_with_and_without_npts_by_date_and_period['settlement_date'] == settlement_date and system_imbalance_with_and_without_npts_by_date_and_period['settlement_period'] == settlement_period]['counterfactual_niv'].values[0]
+        niv_without_npts = system_imbalance_with_and_without_npts_copy[
+            (system_imbalance_with_and_without_npts_copy['settlement_date'] == settlement_date) & 
+            (system_imbalance_with_and_without_npts_copy['settlement_period'] == settlement_period)
+        ]['counterfactual_niv'].values[0]
         price_adjustment_column_header = 'buy_price_adjustment' if niv_without_npts > 0 else 'sell_price_adjustment'
-        price_adjustment = pd.to_numeric(price_data[price_adjustment_column_header].fillna(0), errors='coerce').values[0]
+        price_adjustment = price_data[price_adjustment_column_header].values[0]
         new_system_price = get_new_system_price(new_settlement_stack, price_adjustment, market_index_price, tlm_by_bmu, niv_without_npts)
         system_prices.append((settlement_date, settlement_period, new_system_price))
     
@@ -31,11 +41,11 @@ def get_new_system_price(
 ) -> float:
     if settlement_stack.empty:
         return market_index_price
-    buy_ranked_set, sell_ranked_set = get_ranked_sets(settlement_stack, niv_without_npts)
-    dmat_adjusted_buy_set, dmat_adjusted_sell_set = perform_de_minimis_tagging(buy_ranked_set, sell_ranked_set, niv_without_npts)
+    buy_ranked_set, sell_ranked_set = get_ranked_sets(settlement_stack)
+    dmat_adjusted_buy_set, dmat_adjusted_sell_set = perform_de_minimis_tagging(buy_ranked_set, sell_ranked_set)
     arbitrage_adjusted_buy_set, arbitrage_adjusted_sell_set = perform_arbitrage_tagging(dmat_adjusted_buy_set, dmat_adjusted_sell_set)
     classified_buy_set, classified_sell_set = perform_classification(arbitrage_adjusted_buy_set, arbitrage_adjusted_sell_set)
-    niv_adjusted_buy_set, niv_adjusted_sell_set = perform_niv_tagging(classified_buy_set, classified_sell_set, niv_without_npts)
+    niv_adjusted_buy_set, niv_adjusted_sell_set = perform_niv_tagging(classified_buy_set, classified_sell_set)
     ranked_set_for_calculation = niv_adjusted_buy_set if niv_without_npts > 0 else niv_adjusted_sell_set
     if ranked_set_for_calculation.empty:
         return market_index_price
@@ -67,7 +77,7 @@ def perform_de_minimis_tagging(
     sell_volume_by_bmu_by_pair_id = get_total_volume_by_bmu_by_pair(sell_ranked_set)
     
     for buy_index, buy_row in buy_ranked_set.iterrows():
-        bmu = buy_row['ID']
+        bmu = buy_row['id']
         bid_offer_pair_id = buy_row['bid_offer_pair_id']
         if pd.isna(bid_offer_pair_id):
             bid_offer_pair_id = 0
@@ -144,11 +154,11 @@ def perform_classification(
         (arbitrage_adjusted_buy_set['so_flag'] == False) &
         (arbitrage_adjusted_buy_set['cadl_flag'] != True) &
         (arbitrage_adjusted_buy_set['arbitrage_adjusted_volume'] != 0)
-    ]
-    first_stage_unflagged_sell_actions = arbitrage_adjusted_sell_set[
-            (arbitrage_adjusted_buy_set['so_flag'] == False) &
-            (arbitrage_adjusted_buy_set['cadl_flag'] != True) &
-            (arbitrage_adjusted_buy_set['arbitrage_adjusted_volume'] != 0)
+    ] #TODO check this has been carried over properly
+    first_stage_unflagged_sell_actions =arbitrage_adjusted_sell_set[
+            (arbitrage_adjusted_sell_set['so_flag'] == False) &
+            (arbitrage_adjusted_sell_set['cadl_flag'] != True) &
+            (arbitrage_adjusted_sell_set['arbitrage_adjusted_volume'] != 0)
     ]
     if first_stage_unflagged_buy_actions.empty:
         if not arbitrage_adjusted_buy_set.empty:

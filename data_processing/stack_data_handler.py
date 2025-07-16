@@ -1,3 +1,5 @@
+import datetime
+
 import pandas as pd
 import numpy as np
 
@@ -270,11 +272,17 @@ def check_missing_data(
     dataframe_to_check: pd.DataFrame,
     settlement_dates_with_periods_per_day: dict[str, int]
 ) -> set[tuple[str, int]]:
-    complete_dates_and_periods = [(settlement_date, settlement_period) for settlement_date, periods_per_day in settlement_dates_with_periods_per_day.items() for settlement_period in range(1, periods_per_day + 1)]
+    dataframe_to_check_copy = dataframe_to_check.copy()
+    dataframe_to_check_copy['settlement_date'] = pd.to_datetime(dataframe_to_check_copy['settlement_date']).dt.date
+    complete_dates_and_periods = [
+        (datetime.datetime.strptime(settlement_date, '%Y-%m-%d').date(), settlement_period) 
+        for settlement_date, periods_per_day in settlement_dates_with_periods_per_day.items() 
+        for settlement_period in range(1, periods_per_day + 1)
+    ]
     complete_dates_and_periods_set = set(complete_dates_and_periods)
-    present_dates_and_periods = set(zip(dataframe_to_check['settlement_date'], dataframe_to_check['settlement_period']))
+    present_dates_and_periods = set(zip(dataframe_to_check_copy['settlement_date'], dataframe_to_check_copy['settlement_period']))
     missing_dates_and_periods = complete_dates_and_periods_set - present_dates_and_periods
-    nan_rows = dataframe_to_check[dataframe_to_check.isna().any(axis=1)]
+    nan_rows = dataframe_to_check_copy[dataframe_to_check_copy.isna().any(axis=1)]
     nan_tuples = set(zip(nan_rows['settlement_date'], nan_rows['settlement_period']))
     missing_dates_and_periods.update(nan_tuples)
     return missing_dates_and_periods

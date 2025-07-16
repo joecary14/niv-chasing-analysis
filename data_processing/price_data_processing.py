@@ -14,12 +14,16 @@ async def get_ancillary_price_data_for_sp_calculation(
     missing_data.update(missing_mid_data)
     
     price_adjustment_data = await get_price_adjustment_data(['settlement_date', 'settlement_period', 'buy_price_price_adjustment', 'sell_price_price_adjustment'], list(settlement_dates_with_periods_per_day.keys()), api_client)
-    if price_adjustment_data.empty: return mid_data
-    combined_price_data = mid_data.merge(
-        price_adjustment_data,
-        on=['settlement_date', 'settlement_period'],
-        how='outer'
-    )
+    if price_adjustment_data.empty: 
+        combined_price_data = mid_data.copy()
+        combined_price_data['buy_price_adjustment'] = 0
+        combined_price_data['sell_price_adjustment'] = 0
+    else:
+        combined_price_data = mid_data.merge(
+            price_adjustment_data,
+            on=['settlement_date', 'settlement_period'],
+            how='outer'
+        )
     
     return combined_price_data
     
@@ -32,7 +36,6 @@ async def get_market_index_price_data(
     apx_data = combined_market_index_data[combined_market_index_data['data_provider'] == 'APXMIDP']
     combined_market_index_data = pd.concat([n2ex_data, apx_data])
     combined_market_index_data['weighted_price'] = combined_market_index_data['price'] * combined_market_index_data['volume']
-    #TODO - rewrite to group by the settlement date and the settlement period
     grouped_data = combined_market_index_data.groupby(['settlement_date', 'settlement_period']).agg(
         total_volume=pd.NamedAgg(column='volume', aggfunc='sum'),
         total_weighted_price=pd.NamedAgg(column='weighted_price', aggfunc='sum')
