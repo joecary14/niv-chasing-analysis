@@ -186,12 +186,13 @@ def add_new_bid_offer_acceptances(
             pair_price = bm_unit.bid_offer_pairs_submitted[pair_id]['offer']
         
         total_additional_volume_accepted += volume_to_accept
-        new_acceptance = pd.DataFrame([{'id': bm_unit_id, 
-                                        'bid_offer_pair_id': pair_id, 
-                                        'so_flag': False,
-                                        'original_price': pair_price, 
-                                        'volume': volume_to_accept}])
-        new_acceptances.append(new_acceptance)
+        if volume_to_accept != 0:
+            new_acceptance = pd.DataFrame([{'id': bm_unit_id, 
+                                            'bid_offer_pair_id': pair_id, 
+                                            'so_flag': False,
+                                            'original_price': pair_price, 
+                                            'volume': volume_to_accept}])
+            new_acceptances.append(new_acceptance)
         if abs(total_additional_volume_accepted) >= abs(energy_target):
             break
         

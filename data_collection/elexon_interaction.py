@@ -156,6 +156,9 @@ async def get_physical_volumes_by_bmu(
             'MELS': max_energy_delivery,
             'MILS': max_energy_import
         })
+        #TODO - remove this test code
+        if settlement_period == 47 and bmu == 'T_SCCL-4':
+            banana = 1
         
     return physical_volumes_by_bmu
 

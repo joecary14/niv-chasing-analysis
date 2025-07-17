@@ -48,7 +48,6 @@ def dataframes_to_excel(
             df.to_excel(writer, sheet_name=sheet_name, index=False)
     
     print(f"Excel file successfully saved to {file_path} with {len(dataframes)} sheet(s).")
-    os.system(f'open "{file_path}"')
 
 def create_filepath(
     file_directory: str, 
@@ -64,16 +63,39 @@ def create_filepath(
         
     return file_path
 
-def order_df_by_settlement_date_and_period_for_output(
+def process_df_for_output(
+    df: pd.DataFrame,
+    missing_data: set[tuple[str, int]]
+) -> pd.DataFrame:
+    ordered_df = order_by_settlement_date_and_period(df)
+    df_without_missing_data = drop_missing_data_rows(ordered_df, missing_data)
+    
+    return df_without_missing_data
+
+def order_by_settlement_date_and_period(
     df: pd.DataFrame
 ) -> pd.DataFrame:
     df_copy = df.copy()
     df_copy["settlement_date"] = pd.to_datetime(df_copy["settlement_date"], errors="coerce")
     df_copy.sort_values(by=["settlement_date", "settlement_period"], inplace=True)
-    df_copy.drop(columns=["settlement_date", "settlement_period"], inplace=True)
     df_copy.reset_index(drop=True, inplace=True)
     
     return df_copy
+
+def drop_missing_data_rows(
+    ordered_df: pd.DataFrame,
+    missing_data: set[tuple[str, int]]
+) -> pd.DataFrame:
+    ordered_df_copy = ordered_df.copy()
+    ordered_df_copy['settlement_date_str'] = ordered_df_copy['settlement_date'].dt.strftime('%Y-%m-%d')
+
+    mask = ~ordered_df_copy.apply(
+        lambda row: (row['settlement_date_str'], row['settlement_period']) in missing_data, 
+        axis=1
+    )
+
+    filtered_df = ordered_df_copy[mask].drop('settlement_date_str', axis=1)
+    return filtered_df
 
 def create_dict_from_excel(
     filepath: str,

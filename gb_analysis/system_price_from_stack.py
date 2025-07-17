@@ -28,6 +28,9 @@ def get_new_system_prices_by_date_and_period(
         ]['counterfactual_niv'].values[0]
         price_adjustment_column_header = 'buy_price_adjustment' if niv_without_npts > 0 else 'sell_price_adjustment'
         price_adjustment = price_data[price_adjustment_column_header].values[0]
+        #TODO - test code
+        if settlement_period == 47:
+            banana = 1
         new_system_price = get_new_system_price(new_settlement_stack, price_adjustment, market_index_price, tlm_by_bmu, niv_without_npts)
         system_prices.append((settlement_date, settlement_period, new_system_price))
     
@@ -157,7 +160,7 @@ def perform_classification(
         (arbitrage_adjusted_buy_set['so_flag'] == False) &
         (arbitrage_adjusted_buy_set['cadl_flag'] != True) &
         (arbitrage_adjusted_buy_set['arbitrage_adjusted_volume'] != 0)
-    ] #TODO check this has been carried over properly
+    ]
     first_stage_unflagged_sell_actions =arbitrage_adjusted_sell_set[
             (arbitrage_adjusted_sell_set['so_flag'] == False) &
             (arbitrage_adjusted_sell_set['cadl_flag'] != True) &
