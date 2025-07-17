@@ -26,11 +26,8 @@ def get_new_system_prices_by_date_and_period(
             (system_imbalance_with_and_without_npts_copy['settlement_date'] == settlement_date) & 
             (system_imbalance_with_and_without_npts_copy['settlement_period'] == settlement_period)
         ]['counterfactual_niv'].values[0]
-        price_adjustment_column_header = 'buy_price_adjustment' if niv_without_npts > 0 else 'sell_price_adjustment'
+        price_adjustment_column_header = 'buy_price_price_adjustment' if niv_without_npts > 0 else 'sell_price_price_adjustment'
         price_adjustment = price_data[price_adjustment_column_header].values[0]
-        #TODO - test code
-        if settlement_period == 47:
-            banana = 1
         new_system_price = get_new_system_price(new_settlement_stack, price_adjustment, market_index_price, tlm_by_bmu, niv_without_npts)
         system_prices.append((settlement_date, settlement_period, new_system_price))
     

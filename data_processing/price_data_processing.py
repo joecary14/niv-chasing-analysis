@@ -16,14 +16,15 @@ async def get_ancillary_price_data_for_sp_calculation(
     price_adjustment_data = await get_price_adjustment_data(['settlement_date', 'settlement_period', 'buy_price_price_adjustment', 'sell_price_price_adjustment'], list(settlement_dates_with_periods_per_day.keys()), api_client)
     if price_adjustment_data.empty: 
         combined_price_data = mid_data.copy()
-        combined_price_data['buy_price_adjustment'] = 0
-        combined_price_data['sell_price_adjustment'] = 0
+        combined_price_data['buy_price_price_adjustment'] = 0
+        combined_price_data['sell_price_price_adjustment'] = 0
     else:
         combined_price_data = mid_data.merge(
             price_adjustment_data,
             on=['settlement_date', 'settlement_period'],
             how='outer'
         )
+        combined_price_data[['buy_price_price_adjustment', 'sell_price_price_adjustment']] = combined_price_data[['buy_price_price_adjustment', 'sell_price_price_adjustment']].fillna(0)
     
     return combined_price_data
     
