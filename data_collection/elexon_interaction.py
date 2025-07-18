@@ -35,16 +35,14 @@ async def fetch_data_by_settlement_date(
     return data_dfs
 
 async def fetch_data_from_and_to_date(
-    settlement_dates: list[str], 
+    settlement_dates_with_periods_per_day: dict[str, int], 
     api_function, 
     column_headers: list[str] = None
 ) -> list[pd.DataFrame]:
-    settlement_dates_copy = settlement_dates.copy()
-    extended_settlement_dates = add_settlement_date_to_end_of_list(settlement_dates_copy)
     data_dfs = []
     tasks = [
-        api_function(extended_settlement_dates[i], extended_settlement_dates[i+1], format='dataframe', async_req=True)
-        for i in range(len(settlement_dates))
+        api_function(settlement_date, settlement_date, settlement_period_from = 1, settlement_period_to = settlement_periods_in_day, format='dataframe', async_req=True)
+        for settlement_date, settlement_periods_in_day in settlement_dates_with_periods_per_day.items()
     ]
     
     results = await asyncio.gather(*[asyncio.to_thread(task.get) for task in tasks])
@@ -161,21 +159,21 @@ async def get_physical_volumes_by_bmu(
 
 async def get_full_midp_data(
     api_client: ApiClient,
-    settlement_dates: list[str]
+    settlement_dates_with_periods_per_day: dict[str, int]
 ) -> pd.DataFrame:
     market_index_api = MarketIndexApi(api_client)
-    market_index_data = await fetch_data_from_and_to_date(settlement_dates, market_index_api.balancing_pricing_market_index_get)
+    market_index_data = await fetch_data_from_and_to_date(settlement_dates_with_periods_per_day, market_index_api.balancing_pricing_market_index_get)
     combined_market_index_data = pd.concat(market_index_data)
     
     return combined_market_index_data
 
 async def get_price_adjustment_data(
     columns_to_download_from_api: list[str], 
-    settlement_dates: list[str], 
+    settlement_dates_with_periods_per_day: dict[str, int], 
     api_client: ApiClient
 ) -> pd.DataFrame:
     net_bsad_api = BalancingServicesAdjustmentNetApi(api_client)
-    price_adjustment_data = await fetch_data_from_and_to_date(settlement_dates, net_bsad_api.balancing_nonbm_netbsad_get, columns_to_download_from_api)
+    price_adjustment_data = await fetch_data_from_and_to_date(settlement_dates_with_periods_per_day, net_bsad_api.balancing_nonbm_netbsad_get, columns_to_download_from_api)
     if all(df.empty for df in price_adjustment_data):
         return pd.DataFrame()
     combined_price_adjustment_data = pd.concat(price_adjustment_data)

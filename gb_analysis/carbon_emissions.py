@@ -23,21 +23,23 @@ def calculate_marginal_emissions(
         system_imbalance = row['net_imbalance_volume'].values[0]
         counterfactual_imbalance = row['counterfactual_niv'].values[0]
         
-        factual_mef = get_mef(system_imbalance, settlement_stack, bmu_id_to_ci_mapping)
-        counterfactual_mef = get_mef(counterfactual_imbalance, new_stack, bmu_id_to_ci_mapping)
+        factual_mef, factual_bmu_id = get_mef_and_bmu_id(system_imbalance, settlement_stack, bmu_id_to_ci_mapping)
+        counterfactual_mef, counterfactual_bmu_id = get_mef_and_bmu_id(counterfactual_imbalance, new_stack, bmu_id_to_ci_mapping)
         
-        mefs.append((settlement_date, settlement_period, factual_mef, counterfactual_mef))
+        mefs.append((settlement_date, settlement_period, factual_mef, factual_bmu_id, counterfactual_mef, counterfactual_bmu_id))
     
-    mef_df = pd.DataFrame(mefs, columns=['settlement_date', 'settlement_period', 'factual_mef', 'counterfactual_mef'])
+    mef_df = pd.DataFrame(mefs, columns=['settlement_date', 'settlement_period', 'factual_mef', 'factual_marginal_unit', 'counterfactual_mef', 'counterfactual_marginal_unit'])
     
     return mef_df
         
 
-def get_mef(
+def get_mef_and_bmu_id(
     system_imbalance: float,
     settlement_stack: pd.DataFrame,
     bmu_id_to_ci_mapping: dict[str, float]
 ) -> float | None:
+    if settlement_stack.empty:
+        return None
     unflagged_settlement_stack = settlement_stack[settlement_stack['so_flag'] == False]
     if system_imbalance > 0:
         marginal_action = unflagged_settlement_stack.iloc[0]
@@ -51,4 +53,4 @@ def get_mef(
     else:
         mef = None
     
-    return mef
+    return mef, marginal_action_bmu_id

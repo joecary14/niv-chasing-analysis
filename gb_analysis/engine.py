@@ -11,6 +11,7 @@ import gb_analysis.recalculate_balancing_cashflows as recalculate_balancing_cash
 import gb_analysis.recalculate_imbalance_cashflows as recalculate_imbalance_cashflows
 import gb_analysis.calculate_npt_profit as calculate_npt_profit
 import gb_analysis.carbon_emissions as carbon_emissions
+from gb_analysis.summary import create_summary_table
 from gb_analysis.system_price_from_stack import get_new_system_prices_by_date_and_period 
 
 from ancillary_files import excel_interaction
@@ -67,8 +68,11 @@ async def run(
     npt_cashflows_df = pd.concat(npt_cashflows)
     mefs_df = pd.concat(mefs)
     missing_data_df = pd.DataFrame(list(all_missing_data), columns=['settlement_date', 'settlement_period'])
+    summary_df = create_summary_table(system_prices_df, system_imbalances_df, balancing_costs_df, so_cashflows_df, supplier_cashflows_df, generator_cashflows_df, intraday_cashflows_df, mefs_df)
     
     sheet_names_dict = {
+        'Summary': summary_df,
+        'Missing Data': missing_data_df,
         'System Prices': system_prices_df,
         'System Imbalances': system_imbalances_df,
         'Balancing Costs': balancing_costs_df,
@@ -79,8 +83,7 @@ async def run(
         'Generator Cashflows': generator_cashflows_df,
         'Intraday Cashflows': intraday_cashflows_df,
         'NPT Cashflows': npt_cashflows_df,
-        'MEFs': mefs_df,
-        'Missing Data': missing_data_df
+        'MEFs': mefs_df
     }
     file_name = f'{years[0]}-{months[0]}_to_{years[-1]}-{months[-1]}_results'
     excel_interaction.dataframes_to_excel(sheet_names_dict.values(), output_directory, file_name, sheet_names_dict.keys())
@@ -114,6 +117,8 @@ async def run_by_month(
     _, last_day = calendar.monthrange(year, month)
     month_end_date = datetime.date(year, month, last_day).strftime('%Y-%m-%d')
     settlement_dates_with_periods_per_day = datetime_functions.get_settlement_dates_and_settlement_periods_per_day(month_start_date, month_end_date)
+    #TODO- remove test code
+    settlement_dates_with_periods_per_day = {'2022-04-01': 48}
     api_client = ApiClient()
     missing_data_points = set()
     
@@ -162,8 +167,16 @@ async def run_by_month(
     generator_cashflows_df = excel_interaction.process_df_for_output(generator_cashflows_df, missing_data_points)
     npt_welfare_df = excel_interaction.process_df_for_output(npt_welfare, missing_data_points)
     marginal_emissions_df = excel_interaction.process_df_for_output(marginal_emissions_df, missing_data_points)
+    missing_data_df = pd.DataFrame(list(missing_data_points), columns=['settlement_date', 'settlement_period'])
+    missing_data_df = excel_interaction.order_by_settlement_date_and_period(missing_data_df)
+    summary_df = create_summary_table(
+        system_prices_df, system_imbalances_df, balancing_costs_df, so_cashflows_df, supplier_cashflows_df, generator_cashflows_df,
+        intraday_cashflow_df, marginal_emissions_df
+    )
     
     sheet_names_dict = {
+        'Summary': summary_df,
+        'Missing Data': missing_data_df,
         'System Prices': system_prices_df,
         'System Imbalances': system_imbalances_df,
         'Balancing Costs': balancing_costs_df,
