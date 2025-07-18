@@ -11,7 +11,6 @@ from elexonpy.api.balancing_services_adjustment___net_api import BalancingServic
 from elexonpy.rest import ApiException
 
 from data_processing.bm_physical_data_handler import get_physical_volume
-from ancillary_files.datetime_functions import add_settlement_date_to_end_of_list
 
 async def fetch_data_by_settlement_date(
     settlement_dates: list[str], 
@@ -122,6 +121,8 @@ async def get_bid_offer_pairs_data_one_period(
     bid_offer_api = BidOfferApi(api_client)
     task = bid_offer_api.balancing_bid_offer_all_get(settlement_date, settlement_period, format='dataframe', async_req=True)
     bid_offer_data_one_period = await retry_api_call(task)
+    if bid_offer_data_one_period.empty:
+        return pd.DataFrame()
     bid_offer_useful_data_one_period = bid_offer_data_one_period[['bm_unit', 'level_from', 'bid', 'offer', 'pair_id']]
     
     return bid_offer_useful_data_one_period
@@ -140,6 +141,8 @@ async def get_physical_volumes_by_bmu(
         'MILS', settlement_date, settlement_period, format='dataframe', async_req=True)]
     results = await asyncio.gather(*[retry_api_call(task) for task in tasks])
     full_PN_data_one_period, full_MELS_data_one_period, full_MILS_data_one_period = results
+    if full_PN_data_one_period.empty or full_MELS_data_one_period.empty or full_MILS_data_one_period.empty:
+        return {}
     physical_volumes_by_bmu = {}
     for bmu in bmus:
         PN_data = full_PN_data_one_period[full_PN_data_one_period['bm_unit'] == bmu]

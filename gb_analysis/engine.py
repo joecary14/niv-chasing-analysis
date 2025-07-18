@@ -117,8 +117,6 @@ async def run_by_month(
     _, last_day = calendar.monthrange(year, month)
     month_end_date = datetime.date(year, month, last_day).strftime('%Y-%m-%d')
     settlement_dates_with_periods_per_day = datetime_functions.get_settlement_dates_and_settlement_periods_per_day(month_start_date, month_end_date)
-    #TODO- remove test code
-    settlement_dates_with_periods_per_day = {'2022-04-01': 48}
     api_client = ApiClient()
     missing_data_points = set()
     

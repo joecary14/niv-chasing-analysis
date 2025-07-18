@@ -47,10 +47,6 @@ def recalculate_imbalance_cashflows_SO(
     for settlement_date, recalclated_mr1b_data_by_settlement_date in recalculated_mr1b_data.groupby('Settlement Date'):
         for settlement_period, recalculated_mr1b_data_by_settlement_period in recalclated_mr1b_data_by_settlement_date.groupby('Settlement Period'):
             if type(settlement_date) is not str: settlement_date = settlement_date.strftime('%Y-%m-%d')
-            #TODO - test code
-            if (settlement_date, settlement_period) not in recalculated_system_price_by_date_and_period:
-                continue
-            
             recalculated_system_price = recalculated_system_price_by_date_and_period[(settlement_date, settlement_period)]
             recalculated_imbalance_cashflow = -(recalculated_mr1b_data_by_settlement_period['Energy Imbalance Vol']*recalculated_system_price).sum()
             recalculated_imbalance_cashflow_by_date_and_period.append((settlement_date, settlement_period, recalculated_imbalance_cashflow))
@@ -84,9 +80,6 @@ def get_old_and_new_cashflows_by_bsc_party_type(
     for settlement_date, recalclated_mr1b_data_by_settlement_date in recalculated_mr1b_data.groupby('Settlement Date'):
         if type(settlement_date) is not str: settlement_date = settlement_date.strftime('%Y-%m-%d')
         for settlement_period, recalculated_mr1b_data_by_settlement_period in recalclated_mr1b_data_by_settlement_date.groupby('Settlement Period'):
-            #TODO - test code
-            if (settlement_date, settlement_period) not in recalculated_system_price_by_date_and_period:
-                continue
             recalculated_system_price = recalculated_system_price_by_date_and_period[(settlement_date, settlement_period)]
             original_imbalance_cashflow = -recalculated_mr1b_data_by_settlement_period['Imbalance Charge'].sum() # - sign to ensure that positive is profit for party
             recalculated_imbalance_cashflow = (recalculated_mr1b_data_by_settlement_period['Energy Imbalance Vol']*recalculated_system_price).sum()

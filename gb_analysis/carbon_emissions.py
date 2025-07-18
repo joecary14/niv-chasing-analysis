@@ -23,7 +23,13 @@ def calculate_marginal_emissions(
         system_imbalance = row['net_imbalance_volume'].values[0]
         counterfactual_imbalance = row['counterfactual_niv'].values[0]
         
+        if system_imbalance is None or settlement_stack.empty:
+            mefs.append((settlement_date, settlement_period, None, None))
+            continue
         factual_mef, factual_bmu_id = get_mef_and_bmu_id(system_imbalance, settlement_stack, bmu_id_to_ci_mapping)
+        if counterfactual_imbalance is None or new_stack.empty:
+            mefs.append((settlement_date, settlement_period, factual_mef, factual_bmu_id, None, None))
+            continue
         counterfactual_mef, counterfactual_bmu_id = get_mef_and_bmu_id(counterfactual_imbalance, new_stack, bmu_id_to_ci_mapping)
         
         mefs.append((settlement_date, settlement_period, factual_mef, factual_bmu_id, counterfactual_mef, counterfactual_bmu_id))
@@ -32,7 +38,6 @@ def calculate_marginal_emissions(
     
     return mef_df
         
-
 def get_mef_and_bmu_id(
     system_imbalance: float,
     settlement_stack: pd.DataFrame,
@@ -41,6 +46,8 @@ def get_mef_and_bmu_id(
     if settlement_stack.empty:
         return None
     unflagged_settlement_stack = settlement_stack[settlement_stack['so_flag'] == False]
+    if unflagged_settlement_stack.empty:
+        return None, None
     if system_imbalance > 0:
         marginal_action = unflagged_settlement_stack.iloc[0]
     else:

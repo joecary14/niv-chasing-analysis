@@ -63,6 +63,9 @@ async def get_new_settlement_stack_one_period(
     grouped_bid_offer_data_one_period = bid_offer_data_one_period.groupby('bm_unit')
     bmus = grouped_bid_offer_data_one_period.groups.keys()
     physical_volumes_by_bmu = await elexon_interaction.get_physical_volumes_by_bmu(api_client, settlement_date, settlement_period, bmus)
+    if not physical_volumes_by_bmu:
+        missing_data.add((settlement_date, settlement_period))
+        return pd.DataFrame()
     bmus = stack_data_handler.get_bmus_one_period(grouped_bid_offer_data_one_period, full_ascending_settlement_stack_one_period, physical_volumes_by_bmu)
     new_settlement_stack = recalculate_settlement_stack_one_period(system_imbalance_with_and_without_npts_one_period, full_ascending_settlement_stack_one_period, bid_offer_data_one_period, bmus)
     return new_settlement_stack
