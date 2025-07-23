@@ -76,6 +76,8 @@ def order_by_settlement_date_and_period(
     df: pd.DataFrame
 ) -> pd.DataFrame:
     df_copy = df.copy()
+    if 'settlement_date' not in df.columns:
+        return df
     df_copy["settlement_date"] = pd.to_datetime(df_copy["settlement_date"], errors="coerce")
     df_copy.sort_values(by=["settlement_date", "settlement_period"], inplace=True)
     df_copy.reset_index(drop=True, inplace=True)
@@ -107,3 +109,47 @@ def create_dict_from_excel(
     dictionary = df.set_index(key_column).to_dict()[value_column]
     
     return dictionary
+
+def aggregate_results_to_one_file(
+    folder: str,
+    output_directory: str,
+    output_filename: str
+) -> None:
+    filepaths = get_excel_filepaths(folder)
+    if not filepaths:
+        print("No Excel files found in the specified folder.")
+        return
+    
+    aggregate_excel_files(filepaths, output_directory, output_filename)
+
+def aggregate_excel_files(
+    filepaths: list[str],
+    output_directory: str,
+    output_filename: str
+) -> None:
+    first_file_sheets = pd.read_excel(filepaths[0], sheet_name=None)
+    sheet_names = list(first_file_sheets.keys())
+    combined_sheets = {sheet_name: [] for sheet_name in sheet_names}
+    
+    for filepath in filepaths:
+        try:
+            file_sheets = pd.read_excel(filepath, sheet_name=None)
+            for sheet_name in sheet_names:
+                if sheet_name in file_sheets:
+                    combined_sheets[sheet_name].append(file_sheets[sheet_name])
+                else:
+                    print(f"Warning: Sheet '{sheet_name}' not found in {filepath}")
+        except Exception as e:
+            print(f"Error reading {filepath}: {e}")
+    
+    final_dataframes = []
+    final_sheet_names = []
+    
+    for sheet_name, dfs in combined_sheets.items():
+        if dfs:
+            combined_df = pd.concat(dfs, ignore_index=True)
+            ordered_combined_df = order_by_settlement_date_and_period(combined_df)
+            final_dataframes.append(ordered_combined_df)
+            final_sheet_names.append(sheet_name)
+    
+    dataframes_to_excel(final_dataframes, output_directory, output_filename, final_sheet_names)
