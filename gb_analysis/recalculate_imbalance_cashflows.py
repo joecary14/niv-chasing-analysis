@@ -1,4 +1,6 @@
 import pandas as pd
+import gb_analysis.recalculate_niv as recalculate_niv
+import ancillary_files.excel_interaction as excel_interaction
 
 def get_recalculated_imbalance_cashflows_SO(
     recalculated_system_price_df: pd.DataFrame, 
@@ -47,6 +49,8 @@ def recalculate_imbalance_cashflows_SO(
     for settlement_date, recalclated_mr1b_data_by_settlement_date in recalculated_mr1b_data.groupby('Settlement Date'):
         for settlement_period, recalculated_mr1b_data_by_settlement_period in recalclated_mr1b_data_by_settlement_date.groupby('Settlement Period'):
             if type(settlement_date) is not str: settlement_date = settlement_date.strftime('%Y-%m-%d')
+            if (settlement_date, settlement_period) not in recalculated_system_price_by_date_and_period:
+                continue
             recalculated_system_price = recalculated_system_price_by_date_and_period[(settlement_date, settlement_period)]
             recalculated_imbalance_cashflow = -(recalculated_mr1b_data_by_settlement_period['Energy Imbalance Vol']*recalculated_system_price).sum()
             recalculated_imbalance_cashflow_by_date_and_period.append((settlement_date, settlement_period, recalculated_imbalance_cashflow))
@@ -80,6 +84,8 @@ def get_old_and_new_cashflows_by_bsc_party_type(
     for settlement_date, recalclated_mr1b_data_by_settlement_date in recalculated_mr1b_data.groupby('Settlement Date'):
         if type(settlement_date) is not str: settlement_date = settlement_date.strftime('%Y-%m-%d')
         for settlement_period, recalculated_mr1b_data_by_settlement_period in recalclated_mr1b_data_by_settlement_date.groupby('Settlement Period'):
+            if (settlement_date, settlement_period) not in recalculated_system_price_by_date_and_period:
+                continue
             recalculated_system_price = recalculated_system_price_by_date_and_period[(settlement_date, settlement_period)]
             original_imbalance_cashflow = -recalculated_mr1b_data_by_settlement_period['Imbalance Charge'].sum() # - sign to ensure that positive is profit for party
             recalculated_imbalance_cashflow = (recalculated_mr1b_data_by_settlement_period['Energy Imbalance Vol']*recalculated_system_price).sum()
@@ -97,14 +103,113 @@ def calculate_net_npt_cashflow(
     mr1b_data_df: pd.DataFrame
 ) -> pd.DataFrame:
     mr1b_df_npts_only = mr1b_data_df[mr1b_data_df['Party ID'].map(bsc_party_id_to_npt_mapping) == True]
-    mr1b_data_copy = mr1b_df_npts_only.copy()
-    mr1b_data_copy['Settlement Date'] = pd.to_datetime(mr1b_data_copy['Settlement Date']).dt.date
+    mr1b_data_npts_only_copy = mr1b_df_npts_only.copy()
+    mr1b_data_npts_only_copy['Settlement Date'] = pd.to_datetime(mr1b_data_npts_only_copy['Settlement Date']).dt.date
     imbalance_cashflow = []
-    for settlement_date, recalclated_mr1b_data_by_settlement_date in mr1b_data_copy.groupby('Settlement Date'):
-        for settlement_period, recalculated_mr1b_data_by_settlement_period in recalclated_mr1b_data_by_settlement_date.groupby(f'Settlement Period'):
-            original_imbalance_cashflow = -recalculated_mr1b_data_by_settlement_period['Imbalance Charge'].sum() # - sign to ensure that positive is profit for party
-            imbalance_cashflow.append((settlement_date, settlement_period, original_imbalance_cashflow))
+    for settlement_date, mr1b_data_npts_only_by_settlement_date in mr1b_data_npts_only_copy.groupby('Settlement Date'):
+        for settlement_period, mr1b_data_npts_only_by_settlement_period in mr1b_data_npts_only_by_settlement_date.groupby('Settlement Period'):
+            factual_imbalance_cashflow = -mr1b_data_npts_only_by_settlement_period['Imbalance Charge'].sum() # - sign to ensure that positive is profit for party
+            imbalance_cashflow.append((settlement_date, settlement_period, factual_imbalance_cashflow))
     
     imbalance_cashflow_df = pd.DataFrame(imbalance_cashflow, columns=['settlement_date', 'settlement_period', 'npt_imbalance_cashflow'])
 
     return imbalance_cashflow_df
+
+def calculate_cashflows_from_excel(
+    bsc_roles_filepath: str,
+    strict_npt: bool,
+    strict_generator: bool,
+    strict_supplier: bool,
+    mr1b_file_directory: str,
+    system_prices_filepath: str,
+    output_file_directory: str,
+    output_filepath: str,
+) -> None:
+    bsc_id_to_npt_mapping = recalculate_niv.get_bsc_id_to_npt_mapping(
+        bsc_roles_filepath,
+        strict_npt
+    )
+    bsc_id_to_generator_mapping = recalculate_niv.get_bsc_roles_to_generator_mapping(
+        bsc_roles_filepath,
+        strict_generator
+    )
+    bsc_id_to_supplier_mapping = recalculate_niv.get_bsc_roles_to_supplier_mapping(
+        bsc_roles_filepath,
+        strict_supplier
+    )
+    
+    mr1b_data_filepaths = excel_interaction.get_excel_filepaths(mr1b_file_directory)
+    system_prices_df = pd.read_excel(system_prices_filepath)
+    system_prices_df['settlement_date'] = pd.to_datetime(system_prices_df['settlement_date']).dt.strftime('%Y-%m-%d')
+    
+    all_so_cashflows = []
+    all_supplier_cashflows = []
+    all_generator_cashflows = []
+    all_npt_cashflows = []
+    
+    for i, filepath in enumerate(mr1b_data_filepaths):
+        mr1b_data_df = pd.read_excel(filepath)
+        mr1b_data_df = mr1b_data_df.map(lambda x: x.strip() if isinstance(x, str) else x)
+        npt_ids = [k for k, v in bsc_id_to_npt_mapping.items() if v == True]
+        so_cashflows_df = get_recalculated_imbalance_cashflows_SO(
+            system_prices_df, 
+            mr1b_data_df, 
+            npt_ids
+        )
+        supplier_cashflows_df = recalculate_imbalance_cashflows_by_bsc_party_type(
+            bsc_id_to_supplier_mapping, 
+            system_prices_df, 
+            mr1b_data_df, 
+            npt_ids
+        )
+        generator_cashflows_df = recalculate_imbalance_cashflows_by_bsc_party_type(
+            bsc_id_to_generator_mapping, 
+            system_prices_df, 
+            mr1b_data_df, 
+            npt_ids
+        )
+        npt_cashflow_df = calculate_net_npt_cashflow(
+            bsc_id_to_npt_mapping,
+            mr1b_data_df
+        )
+        
+        so_cashflows_df = so_cashflows_df.dropna()
+        supplier_cashflows_df = supplier_cashflows_df.dropna()
+        generator_cashflows_df = generator_cashflows_df.dropna()
+        npt_cashflow_df = npt_cashflow_df.dropna()
+        
+        all_so_cashflows.append(so_cashflows_df)
+        all_supplier_cashflows.append(supplier_cashflows_df)
+        all_generator_cashflows.append(generator_cashflows_df)
+        all_npt_cashflows.append(npt_cashflow_df)
+        
+        print(f"Processed file {i+1} of {len(mr1b_data_filepaths)}")
+    
+    all_so_cashflows_df = pd.concat(all_so_cashflows, ignore_index=True)
+    all_supplier_cashflows_df = pd.concat(all_supplier_cashflows, ignore_index=True)
+    all_generator_cashflows_df = pd.concat(all_generator_cashflows, ignore_index=True)
+    all_npt_cashflows_df = pd.concat(all_npt_cashflows, ignore_index=True)
+    
+    ordered_so_cashflows_df = excel_interaction.order_by_settlement_date_and_period(all_so_cashflows_df)
+    ordered_supplier_cashflows_df = excel_interaction.order_by_settlement_date_and_period(all_supplier_cashflows_df)
+    ordered_generator_cashflows_df = excel_interaction.order_by_settlement_date_and_period(all_generator_cashflows_df)
+    ordered_npt_cashflows_df = excel_interaction.order_by_settlement_date_and_period(all_npt_cashflows_df)
+
+    excel_interaction.dataframes_to_excel(
+        [
+            ordered_so_cashflows_df,
+            ordered_supplier_cashflows_df,
+            ordered_generator_cashflows_df,
+            ordered_npt_cashflows_df
+        ],
+        output_file_directory,
+        output_filepath,
+        sheet_names=[
+            'SO Cashflows',
+            'Supplier Cashflows',
+            'Generator Cashflows',
+            'NPT Cashflows'
+        ]
+    )
+    
+    

@@ -1,4 +1,5 @@
 import pandas as pd
+import ancillary_files.excel_interaction as excel_interaction
 
 def calculate_marginal_emissions(
     full_ascending_settlement_stack_by_date_and_period: dict[tuple[str, int], pd.DataFrame],
@@ -61,3 +62,28 @@ def get_mef_and_bmu_id(
         mef = None
     
     return mef, marginal_action_bmu_id
+
+def create_emissions_dataset(
+    bm_units_json_filepath: str,
+    carbon_intensity_by_fuel_type_filepath: str,
+    output_filename: str,
+    output_directory: str
+) -> None:
+    bm_units_df = pd.read_json(bm_units_json_filepath)
+    carbon_intensity_by_fuel_type_df = pd.read_excel(carbon_intensity_by_fuel_type_filepath)
+    carbon_intensity_by_fuel_type = carbon_intensity_by_fuel_type_df.set_index('FUEL')['kgCO2/MWh'].to_dict()
+    for index, bm_unit in bm_units_df.iterrows():
+        bm_fuel_type = bm_unit['fuelType']
+        if bm_fuel_type in carbon_intensity_by_fuel_type:
+            bm_units_df.loc[index, 'carbon_intensity'] = carbon_intensity_by_fuel_type[bm_fuel_type]
+        else:
+            bm_units_df.loc[index, 'carbon_intensity'] = None
+    
+    ci_data = bm_units_df[['elexonBmUnit', 'carbon_intensity']]
+    ci_data = ci_data.dropna()
+    
+    excel_interaction.dataframes_to_excel(
+        [ci_data],
+        output_directory,
+        output_filename
+    )

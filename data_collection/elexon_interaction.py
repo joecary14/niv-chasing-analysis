@@ -8,6 +8,7 @@ from elexonpy.api.bid_offer_api import BidOfferApi
 from elexonpy.api.balancing_mechanism_physical_api import BalancingMechanismPhysicalApi
 from elexonpy.api.market_index_api import MarketIndexApi
 from elexonpy.api.balancing_services_adjustment___net_api import BalancingServicesAdjustmentNetApi
+from elexonpy.api.reference_api import ReferenceApi
 from elexonpy.rest import ApiException
 
 from data_processing.bm_physical_data_handler import get_physical_volume
@@ -113,6 +114,30 @@ async def get_full_ascending_settlement_stack_one_period(
     
     return ((settlement_date, settlement_period), full_ordered_settlement_stack_one_period)
 
+async def get_accepted_offers_by_date_and_period(
+    api_client: ApiClient,
+    settlement_dates_with_periods_per_day: dict[str, int]
+) -> list[pd.DataFrame]:
+    imbalance_settlement_api = IndicativeImbalanceSettlementApi(api_client)
+    tasks = [
+        imbalance_settlement_api.balancing_settlement_stack_all_bid_offer_settlement_date_settlement_period_get(
+            'offer', settlement_date, settlement_period, format='dataframe', async_req=True)
+        for settlement_date, settlement_periods_in_day in settlement_dates_with_periods_per_day.items()
+        for settlement_period in range(1, settlement_periods_in_day + 1)
+    ]
+    results = await asyncio.gather(*[asyncio.to_thread(task.get) for task in tasks])
+    accepted_offers_by_date_and_period = []
+    for df in results:
+        if not df.empty:
+            accepted_offers = df[
+                (df['bid_offer_pair_id'] > 0) &
+                (df['volume'] > 0)
+            ]
+            if not accepted_offers.empty:
+                accepted_offers_by_date_and_period.append(accepted_offers)
+    
+    return accepted_offers_by_date_and_period
+
 async def get_bid_offer_pairs_data_one_period(
     api_client: ApiClient, 
     settlement_date: str, 
@@ -194,3 +219,4 @@ async def retry_api_call(task, max_retries=3, backoff=2):
                 sleep_time = backoff ** attempt
                 print(f"API call failed. Retrying in {sleep_time} seconds.")
                 await asyncio.sleep(sleep_time)
+                

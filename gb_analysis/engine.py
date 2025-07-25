@@ -122,6 +122,7 @@ async def run_by_month(
     
     # Recalculate imbalance, stack, and system price
     mr1b_df = pd.read_excel(mr1b_filepath)
+    mr1b_df = mr1b_df.map(lambda x: x.strip() if isinstance(x, str) else x)
     full_ascending_settlement_stack_by_date_and_period = await elexon_interaction.get_full_settlement_stacks_by_date_and_period(api_client, settlement_dates_with_periods_per_day, missing_data_points)
     system_imbalance_with_and_without_npts_df = await recalculate_niv.recalculate_niv(settlement_dates_with_periods_per_day, mr1b_df, bsc_roles_to_npt_mapping, missing_data_points)
     ancillary_price_data_for_sp_calculation = await get_ancillary_price_data_for_sp_calculation(api_client, settlement_dates_with_periods_per_day, missing_data_points)
