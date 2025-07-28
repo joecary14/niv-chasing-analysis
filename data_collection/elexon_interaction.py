@@ -8,6 +8,7 @@ from elexonpy.api.bid_offer_api import BidOfferApi
 from elexonpy.api.balancing_mechanism_physical_api import BalancingMechanismPhysicalApi
 from elexonpy.api.market_index_api import MarketIndexApi
 from elexonpy.api.balancing_services_adjustment___net_api import BalancingServicesAdjustmentNetApi
+from elexonpy.api.bid_offer_acceptances_api import BidOfferAcceptancesApi
 from elexonpy.api.reference_api import ReferenceApi
 from elexonpy.rest import ApiException
 
@@ -207,6 +208,26 @@ async def get_price_adjustment_data(
     combined_price_adjustment_data = pd.concat(price_adjustment_data)
     
     return combined_price_adjustment_data
+
+async def get_bid_offer_acceptance_data(
+    settlement_date: str,
+    settlement_periods_in_day: int,
+    api_client: ApiClient
+) -> dict[tuple[str, int], pd.DataFrame]:
+    bid_offer_accpetance_api = BidOfferAcceptancesApi(api_client)
+    tasks = [
+        bid_offer_accpetance_api.balancing_acceptances_all_get(
+            settlement_date, settlement_period, format='dataframe', async_req=True
+        )
+        for settlement_period in range(1, settlement_periods_in_day + 1)
+    ]
+    results = await asyncio.gather(*[asyncio.to_thread(task.get) for task in tasks])
+    bid_offer_acceptances_by_date_and_period = {
+        (settlement_date, settlement_period): df for settlement_period, df in enumerate(results, start=1)
+    }
+    
+    return bid_offer_acceptances_by_date_and_period
+    
 
 async def retry_api_call(task, max_retries=3, backoff=2):
     for attempt in range(1, max_retries + 1):
