@@ -152,7 +152,7 @@ async def run_by_month(
     npt_intraday_position = calculate_npt_profit.calculate_id_position(system_imbalance_with_and_without_npts_df, ancillary_price_data_for_sp_calculation)
     supplier_generator_id_positions = npt_intraday_position.copy()
     supplier_generator_id_positions['id_cashflow'] = -supplier_generator_id_positions['id_cashflow']
-    npt_welfare = calculate_npt_profit.calculate_npt_welfare(npt_cashflows_df, npt_intraday_position)
+    npt_welfare = calculate_npt_profit.calculate_npt_welfare_midp(npt_cashflows_df, npt_intraday_position)
     #TODO - may want to change how all these results are presented 
     #Output Monthly Data
     system_prices_df = excel_interaction.process_df_for_output(recalculated_system_prices, missing_data_points)

@@ -16,6 +16,14 @@ def get_excel_filepaths(
     
     return excel_files
 
+def get_csv_filepaths(
+    folder: str
+) -> list[str]:
+    csv_pattern = os.path.join(folder, "*.csv")
+    csv_files = glob.glob(csv_pattern)
+    
+    return csv_files
+
 def create_filepath_dict(
     filepaths: list[str]
 ) -> dict[str, str]:

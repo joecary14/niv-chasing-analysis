@@ -11,6 +11,8 @@ from elexonpy.api_client import ApiClient
 from  data_processing.price_data_processing import get_ancillary_price_data_for_sp_calculation
 from gb_analysis.system_price_from_stack import get_new_system_prices_by_date_and_period
 import visualisation.plots_from_excel as plots_from_excel
+import data_processing.price_data_processing as price_data_processing
+from gb_analysis.calculate_npt_profit import calculate_npt_welfare_from_id_prices
 
 output_directory = '/Users/josephcary/Library/CloudStorage/OneDrive-Nexus365/First Year/Papers/NIV Chasing/NIV Analysis'
 output_filename = '2021 - Nov 2024 Analysis'
@@ -27,10 +29,11 @@ filename = 'SP Histograms'
 years = [2021, 2022, 2023, 2024]
 
 async def main():
-    await bm_analysis.calculate_number_of_boa_before_settlement_period(
-        output_file_directory='/Users/josephcary/Library/CloudStorage/OneDrive-Nexus365/First Year/Papers/NIV Chasing/Supporting Data',
-        output_file_name='BOA Before Settlement Periods',
-        years=years
+    calculate_npt_welfare_from_id_prices(
+        '/Users/josephcary/Library/CloudStorage/OneDrive-Nexus365/First Year/Papers/NIV Chasing/Results/Testing Publication Code/Cashflow Results/ID Market Summary Data.xlsx',
+        '/Users/josephcary/Library/CloudStorage/OneDrive-Nexus365/First Year/Papers/NIV Chasing/Results/Testing Publication Code/Aggregated Results/Imbalance Results.xlsx',
+        '/Users/josephcary/Library/CloudStorage/OneDrive-Nexus365/First Year/Papers/NIV Chasing/Results/Testing Publication Code/Cashflow Results',
+        'NPT ID Positions'
     )
     
     
