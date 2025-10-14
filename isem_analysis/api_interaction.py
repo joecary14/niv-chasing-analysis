@@ -7,6 +7,32 @@ from typing import Optional, List
 REPORT_LIST_URL = "https://reports.sem-o.com/api/v1/documents/static-reports"
 DOCUMENT_BASE = "https://reports.sem-o.com/documents"
 
+async def collect_data_from_api(
+    dates: List[str],
+    dpug_id: Optional[str] = None,
+    report_name: Optional[str] = None,
+    resource_name: Optional[str] = None,
+    group: Optional[str] = None,
+    dpug_ids: Optional[List[str]] = None
+) -> dict[str, pd.DataFrame]:
+    data_by_dpug_id = {}
+    for date in dates:
+        urls_df = await get_urls(
+            dpug_id=dpug_id,
+            report_name=report_name,
+            resource_name=resource_name,
+            group=group,
+            date=date,
+            dpug_ids=dpug_ids
+        )
+        data_for_date = await fetch_data_from_reports(urls_df)
+        for dpug_id, df in data_for_date.items():
+            if dpug_id not in data_by_dpug_id:
+                data_by_dpug_id[dpug_id] = []
+            data_by_dpug_id[dpug_id].append(df)
+
+    return data_by_dpug_id
+
 async def get_urls(
     dpug_id: Optional[str] = None,
     report_name: Optional[str] = None,
