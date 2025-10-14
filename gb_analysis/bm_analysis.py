@@ -114,13 +114,22 @@ def get_number_of_boa_before_settlement_period(
     for (settlement_date, settlement_period), bid_offer_acceptance_data in bid_offer_acceptance_data_by_date_and_period.items():
         if bid_offer_acceptance_data.empty:
             continue
-        start_time = date_and_period_to_start_time[(settlement_date, settlement_period)]
-        pre_settlement_boa_count = bid_offer_acceptance_data[bid_offer_acceptance_data['acceptance_time'] < start_time].shape[0]
+        period_start_time = date_and_period_to_start_time[(settlement_date, settlement_period)]
+        pre_settlement_boas = bid_offer_acceptance_data[bid_offer_acceptance_data['acceptance_time'] < period_start_time]
+        committed_boas = pre_settlement_boas[pre_settlement_boas['time_from'] < period_start_time]
+        pre_settlement_boa_count = pre_settlement_boas.shape[0]
+        so_flag_pre_settlement_boas_count = pre_settlement_boas[pre_settlement_boas['so_flag'] == True].shape[0]
+        committed_boas_count = committed_boas.shape[0]
+        so_flag_or_committed_boas_count = pre_settlement_boas[
+            (pre_settlement_boas['so_flag'] == True) | 
+            (pre_settlement_boas['time_from'] < period_start_time)
+        ].shape[0]
         all_acceptance_count = bid_offer_acceptance_data.shape[0]
         percent_acceptance = pre_settlement_boa_count / all_acceptance_count if all_acceptance_count > 0 else None
-        results.append((settlement_date, settlement_period, pre_settlement_boa_count, all_acceptance_count, percent_acceptance))
+        percent_acceptance_of_which_so_flag_or_committed = so_flag_or_committed_boas_count / all_acceptance_count if all_acceptance_count > 0 else None
+        results.append((settlement_date, settlement_period, pre_settlement_boa_count, so_flag_pre_settlement_boas_count, committed_boas_count, so_flag_or_committed_boas_count, all_acceptance_count, percent_acceptance, percent_acceptance_of_which_so_flag_or_committed))
     
-    pre_settlement_boa_count_df = pd.DataFrame(results, columns=['settlement_date', 'settlement_period', 'pre_settlement_boa_count', 'all_acceptance_count', 'percent_acceptance'])
+    pre_settlement_boa_count_df = pd.DataFrame(results, columns=['settlement_date', 'settlement_period', 'pre_settlement_boa_count', 'so_flag_pre_settlement_boas_count', 'committed_boas_count', 'so_flag_or_committed_boas_count', 'all_acceptance_count', 'percent_acceptance', 'percent_acceptance_of_which_so_flag_or_committed'])
     
     return pre_settlement_boa_count_df
     

@@ -13,8 +13,9 @@ from gb_analysis.system_price_from_stack import get_new_system_prices_by_date_an
 import visualisation.plots_from_excel as plots_from_excel
 import data_processing.price_data_processing as price_data_processing
 from gb_analysis.calculate_npt_profit import calculate_npt_welfare_from_id_prices
+import p462_analysis.engine as engine
 
-output_directory = '/Users/josephcary/Library/CloudStorage/OneDrive-Nexus365/First Year/Papers/NIV Chasing/NIV Analysis'
+output_directory = '/Users/josephcary/Library/CloudStorage/OneDrive-Nexus365/Outlook/Investigations/P462 Mod/Code Testing'
 output_filename = '2021 - Nov 2024 Analysis'
 inputs_folder = '/Users/josephcary/Library/CloudStorage/OneDrive-Nexus365/First Year/Papers/NIV Chasing/Results/Testing Publication Code/Results'
 filename = 'Wind Output Analysis'
@@ -26,14 +27,14 @@ system_price_filepath = '/Users/josephcary/Library/CloudStorage/OneDrive-Nexus36
 figures_directory = '/Users/josephcary/Library/CloudStorage/OneDrive-Nexus365/First Year/Papers/NIV Chasing/Results/Testing Publication Code/Figures'
 filename = 'SP Histograms'
 
-years = [2021, 2022, 2023, 2024]
+years = [2024]
 
 async def main():
-    calculate_npt_welfare_from_id_prices(
-        '/Users/josephcary/Library/CloudStorage/OneDrive-Nexus365/First Year/Papers/NIV Chasing/Results/Testing Publication Code/Cashflow Results/ID Market Summary Data.xlsx',
-        '/Users/josephcary/Library/CloudStorage/OneDrive-Nexus365/First Year/Papers/NIV Chasing/Results/Testing Publication Code/Aggregated Results/Imbalance Results.xlsx',
-        '/Users/josephcary/Library/CloudStorage/OneDrive-Nexus365/First Year/Papers/NIV Chasing/Results/Testing Publication Code/Cashflow Results',
-        'NPT ID Positions'
+    await engine.run(
+        years=years,
+        months=list(range(1, 13)),
+        output_directory=output_directory,
+        tlms_filepath='/Users/josephcary/Library/CloudStorage/OneDrive-Nexus365/First Year/Data/Elexon/Winter 2022 TLMs.xlsx'
     )
     
     

@@ -5,7 +5,7 @@ import pandas as pd
 def get_new_system_prices_by_date_and_period(
     new_settlement_stacks_by_date_and_period: dict[tuple[str, int], pd.DataFrame],
     ancillary_price_data: pd.DataFrame, 
-    tlm_by_bmu: dict, 
+    tlm_by_bmu: dict[str, float], 
     system_imbalance_with_and_without_npts_by_date_and_period: pd.DataFrame
 ) -> pd.DataFrame:
     system_prices = []
