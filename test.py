@@ -14,6 +14,7 @@ import visualisation.plots_from_excel as plots_from_excel
 import data_processing.price_data_processing as price_data_processing
 from gb_analysis.calculate_npt_profit import calculate_npt_welfare_from_id_prices
 import p462_analysis.engine as engine
+import isem_analysis.api_interaction as api_interaction
 
 output_directory = '/Users/josephcary/Library/CloudStorage/OneDrive-Nexus365/Outlook/Investigations/P462 Mod/Code Testing'
 output_filename = '2021 - Nov 2024 Analysis'
@@ -26,16 +27,13 @@ imbalance_input_data_filepath = '/Users/josephcary/Library/CloudStorage/OneDrive
 system_price_filepath = '/Users/josephcary/Library/CloudStorage/OneDrive-Nexus365/First Year/Papers/NIV Chasing/Supporting Data/System Prices.xlsx'
 figures_directory = '/Users/josephcary/Library/CloudStorage/OneDrive-Nexus365/First Year/Papers/NIV Chasing/Results/Testing Publication Code/Figures'
 filename = 'SP Histograms'
+url = 'https://reports.sem-o.com/documents/EF_PT_ALL_20250902_20250903_BALIMB_INDIC_20250903T144659.XML'
 
 years = [2024]
 
 async def main():
-    await engine.run(
-        years=years,
-        months=list(range(1, 13)),
-        output_directory=output_directory,
-        tlms_filepath='/Users/josephcary/Library/CloudStorage/OneDrive-Nexus365/First Year/Data/Elexon/Winter 2022 TLMs.xlsx'
-    )
+    urls = await api_interaction.get_urls(date = "2025-09-01")
+    df = await api_interaction.fetch_dataframe_from_url(url)
     
     
 
