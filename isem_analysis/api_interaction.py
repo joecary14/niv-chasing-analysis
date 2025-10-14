@@ -5,7 +5,9 @@ from lxml import etree
 from typing import Optional, List
 
 REPORT_LIST_URL = "https://reports.sem-o.com/api/v1/documents/static-reports"
-DOCUMENT_BASE = "https://reports.sem-o.com/documents"
+STATIC_DOCUMENT_BASE = "https://reports.sem-o.com/documents"
+DYNAMIC_DOCUMENT_BASE = "https://reports.sem-o.com/api/v1/documents"
+BM_026_BASE = "PUB_30MinAvgImbalPrc_"
 
 async def collect_data_from_api(
     dates: List[str],
@@ -100,17 +102,48 @@ async def fetch_dataframe_from_url(url: str) -> pd.DataFrame:
     df = pd.DataFrame(rows)
     return df
 
-async def fetch_data_from_reports(urls: pd.DataFrame) -> dict[str, pd.DataFrame]:
+async def get_json_data_from_url(url: str) -> pd.DataFrame:
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url) as resp:
+            resp.raise_for_status()
+            json_data = await resp.json()
+
+    df = pd.DataFrame(json_data['rows'])
+    return df
+
+async def fetch_data_from_reports(
+    filenames: pd.DataFrame,
+    is_static: bool
+) -> dict[str, pd.DataFrame]:
     """
     Fetch and combine data from multiple BM-103 report URLs into a single DataFrame.
     """
     tasks_with_ids = {}
-    for row in urls.itertuples():
-        full_url = f"{DOCUMENT_BASE}/{row.url}"
-        tasks_with_ids[row.dpug_id] = fetch_dataframe_from_url(full_url)
+    document_base = STATIC_DOCUMENT_BASE if is_static else DYNAMIC_DOCUMENT_BASE
+    for row in filenames.itertuples():
+        full_url = f"{document_base}/{row.url}"
+        tasks_with_ids[row.dpug_id] = await fetch_dataframe_from_url(full_url)
     dataframes = await asyncio.gather(*tasks_with_ids.values())
     result_dict = {}
     for dpug_id, df in zip(tasks_with_ids.keys(), dataframes):
         result_dict[dpug_id] = df
 
     return result_dict
+
+async def get_bm_026_data(
+    dates: List[str]
+) -> pd.DataFrame:
+    data_by_date = []
+    for date in dates:
+        dates_with_half_hourly_timestamps = pd.date_range(start=date, periods=48, freq='30T').strftime('%Y%m%d%H%M').tolist()
+        urls = [f"{DYNAMIC_DOCUMENT_BASE}/{BM_026_BASE}{dt}.xml" for dt in dates_with_half_hourly_timestamps]
+        tasks = [get_json_data_from_url(url) for url in urls]
+        data = await asyncio.gather(*tasks)
+        data_on_date = pd.concat(data, ignore_index=True)
+        data_by_date.append(data_on_date)
+
+    data_by_date = pd.concat(data_by_date, ignore_index=True)
+    
+    return data_by_date
+    
+        

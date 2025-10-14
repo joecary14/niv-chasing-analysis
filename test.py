@@ -32,9 +32,7 @@ url = 'https://reports.sem-o.com/documents/EF_PT_ALL_20250902_20250903_BALIMB_IN
 years = [2024]
 
 async def main():
-    urls = await api_interaction.get_urls(date = "2025-09-01")
-    df = await api_interaction.fetch_dataframe_from_url(url)
+    dates = datetime_functions.generate_settlement_dates('2025-09-30', '2025-10-01', True)
+    data = await api_interaction.get_bm_026_data(dates)
     
-    
-
 asyncio.run(main())

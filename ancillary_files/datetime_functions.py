@@ -15,7 +15,8 @@ def get_settlement_dates_and_settlement_periods_per_day(
 
 def generate_settlement_dates(
     start_date: str, 
-    end_date: str
+    end_date: str,
+    date_as_string: bool = False
 ) -> list[datetime]:
     try:
         start_date = datetime.strptime(start_date, '%Y-%m-%d')
@@ -24,7 +25,10 @@ def generate_settlement_dates(
         raise ValueError("Incorrect date format, should be YYYY-MM-DD") from e
 
     date_list = [(start_date + timedelta(days=i)) for i in range((end_date - start_date).days + 1)]
-    
+
+    if date_as_string:
+        date_list = [date.strftime('%Y-%m-%d') for date in date_list]
+
     return date_list
 
 def get_settlement_periods_for_each_day_in_date_range(
