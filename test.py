@@ -33,6 +33,6 @@ url = 'https://reports.sem-o.com/documents/EF_PT_ALL_20250902_20250903_BALIMB_IN
 years = [2024]
 
 async def main():
-    await isem_engine.calculate_imbalance_volumes('2025-09-30', '2025-10-02')
+    await isem_engine.recalculate_imbalance_volume('2025-09-01', '2025-09-30', '/Users/josephcary/Library/CloudStorage/OneDrive-Nexus365/Second Year/Papers/NIV Chasing - I-SEM/Code Testing')
     
 asyncio.run(main())

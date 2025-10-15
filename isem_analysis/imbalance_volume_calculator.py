@@ -6,7 +6,7 @@ def calculate_imbalance_volume_by_unit(
     exchange_rate_data: pd.DataFrame
 ) -> pd.DataFrame:
     data_rows = []
-    imbalance_price_data['StartTime'] = pd.to_datetime(imbalance_price_data['StartTime'], format='%Y-%m-%dT%H:%M:%S', utc=True)
+    imbalance_price_data['EndTime'] = pd.to_datetime(imbalance_price_data['EndTime'], format='%Y-%m-%dT%H:%M:%S', utc=True) #For some reason, it seems that imbalance price data is in UTC (but not explicit), and the CIMB datetime refers to the end of the settlement period
     exchange_rate_data = exchange_rate_data[exchange_rate_data['FromCurrency'] == 'E']
     imbalance_price_data = imbalance_price_data.merge(
         exchange_rate_data[['TradeDate', 'ExchangeRate']], 
@@ -25,16 +25,17 @@ def calculate_imbalance_volume_by_unit(
         ]
         cimb_au_data_copy = cimb_au_data.copy()
         cimb_au_data_copy['datetime'] = pd.to_datetime(cimb_au_data_copy['datetime']).dt.tz_convert('UTC')
-        for start_time, au_imbalance_data_one_start_time in cimb_au_data_copy.groupby('datetime'):
-            matching_price_data = imbalance_price_data[imbalance_price_data['StartTime'] == start_time]
+        for isp_end_time, au_imbalance_data_one_end_time in cimb_au_data_copy.groupby('datetime'):
+            matching_price_data = imbalance_price_data[imbalance_price_data['EndTime'] == isp_end_time]
             if matching_price_data.empty:
                 continue
+            period_start_time = matching_price_data.iloc[0]['StartTime']
             imbalance_price_eur = matching_price_data.iloc[0]['ImbalanceSettlementPrice']
             imbalance_price_gbp = matching_price_data.iloc[0]['ImbalanceSettlementPriceGbp']
             if imbalance_price_eur == 0:
                 continue
             niv = matching_price_data.iloc[0]['NetImbalanceVolume']
-            unique_au_cimb_data = au_imbalance_data_one_start_time.drop_duplicates(subset=['resource'])
+            unique_au_cimb_data = au_imbalance_data_one_end_time.drop_duplicates(subset=['resource'])
             unique_au_cimb_data['applicable_imbalance_price'] = unique_au_cimb_data['unit'].apply(
                 lambda x: imbalance_price_eur if x == 'EUR' else imbalance_price_gbp if x == 'GBP' else None
             )
@@ -46,7 +47,7 @@ def calculate_imbalance_volume_by_unit(
             counterfactual_niv = niv + aggregate_au_imbalance
             
             data_rows.append({
-                'datetime': start_time,
+                'isp_start_time': period_start_time,
                 'imbalance_price_eur': imbalance_price_eur,
                 'imbalance_price_gbp': imbalance_price_gbp,
                 'niv': niv,

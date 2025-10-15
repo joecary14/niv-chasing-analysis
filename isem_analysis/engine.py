@@ -6,9 +6,10 @@ import matplotlib.pyplot as plt
 import scipy.stats as stats
 import numpy as np
 
-async def calculate_imbalance_volumes(
+async def recalculate_imbalance_volume(
     start_date: str,
-    end_date: str
+    end_date: str,
+    output_directory: str
 ) -> None:
     dates = datetime_functions.generate_settlement_dates(start_date, end_date, True)
     imbalance_data = await api_interaction.collect_data_from_api(dates, dpug_ids=['BM-103', 'BM-084'])
@@ -20,33 +21,6 @@ async def calculate_imbalance_volumes(
         imbalance_price_data=imbalance_price_data,
         exchange_rate_data=exchange_rate_data
     )
-
-    expected_datetimes = []
-    for date in dates:
-        date_obj = pd.to_datetime(date)
-        for period in range(48):
-            timestamp = pd.to_datetime(date_obj + pd.Timedelta(minutes=30 * period), utc=True)
-            expected_datetimes.append(timestamp)
+    imbalance_volumes['isp_start_time'] = pd.to_datetime(imbalance_volumes['isp_start_time']).dt.tz_localize(None)
+    imbalance_volumes.to_excel(f"{output_directory}/imbalance_volumes_{start_date}_to_{end_date}_{pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')}.xlsx", index=False)
     
-    expected_set = set(expected_datetimes)
-    actual_set = set(imbalance_volumes['datetime'])
-
-    missing_datetimes = expected_set - actual_set
-    extra_datetimes = actual_set - expected_set
-
-    quantiles = np.linspace(0, 1, 100)  # 100 evenly spaced quantiles
-    q_niv = imbalance_volumes['niv'].quantile(quantiles)
-    q_cf  = imbalance_volumes['counterfactual_niv'].quantile(quantiles)
-
-    plt.figure(figsize=(6,6))
-    plt.plot(q_niv, q_cf, 'o', markersize=4, label='Empirical quantiles')
-    plt.plot([q_niv.min(), q_niv.max()], [q_niv.min(), q_niv.max()],
-            'r--', label='1:1 line')
-
-    plt.xlabel('niv quantiles')
-    plt.ylabel('counterfactual_niv quantiles')
-    plt.title('Q–Q plot: niv vs counterfactual_niv')
-    plt.legend()
-    plt.grid(True)
-    plt.tight_layout()
-    plt.show()
