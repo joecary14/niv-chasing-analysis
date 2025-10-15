@@ -16,8 +16,8 @@ async def collect_data_from_api(
     resource_name: Optional[str] = None,
     group: Optional[str] = None,
     dpug_ids: Optional[List[str]] = None
-) -> dict[str, pd.DataFrame]:
-    data_by_dpug_id = {}
+) -> dict[str, List[pd.DataFrame]]:
+    data_by_dpug_id_by_date = {}
     for date in dates:
         urls_df = await get_urls(
             dpug_id=dpug_id,
@@ -27,13 +27,14 @@ async def collect_data_from_api(
             date=date,
             dpug_ids=dpug_ids
         )
-        data_for_date = await fetch_data_from_reports(urls_df)
+        data_for_date = await fetch_data_from_reports(urls_df, is_static=True)
         for dpug_id, df in data_for_date.items():
-            if dpug_id not in data_by_dpug_id:
-                data_by_dpug_id[dpug_id] = []
-            data_by_dpug_id[dpug_id].append(df)
+            if dpug_id not in data_by_dpug_id_by_date:
+                data_by_dpug_id_by_date[dpug_id] = []
+            data_by_dpug_id_by_date[dpug_id].append(df)
+        print(f"Completed data collection for {date}")
 
-    return data_by_dpug_id
+    return data_by_dpug_id_by_date
 
 async def get_urls(
     dpug_id: Optional[str] = None,
@@ -122,7 +123,7 @@ async def fetch_data_from_reports(
     document_base = STATIC_DOCUMENT_BASE if is_static else DYNAMIC_DOCUMENT_BASE
     for row in filenames.itertuples():
         full_url = f"{document_base}/{row.url}"
-        tasks_with_ids[row.dpug_id] = await fetch_dataframe_from_url(full_url)
+        tasks_with_ids[row.dpug_id] = fetch_dataframe_from_url(full_url)
     dataframes = await asyncio.gather(*tasks_with_ids.values())
     result_dict = {}
     for dpug_id, df in zip(tasks_with_ids.keys(), dataframes):
@@ -135,15 +136,24 @@ async def get_bm_026_data(
 ) -> pd.DataFrame:
     data_by_date = []
     for date in dates:
-        dates_with_half_hourly_timestamps = pd.date_range(start=date, periods=48, freq='30T').strftime('%Y%m%d%H%M').tolist()
+        dates_with_half_hourly_timestamps = pd.date_range(start=date, periods=48, freq='30min').strftime('%Y%m%d%H%M').tolist()
         urls = [f"{DYNAMIC_DOCUMENT_BASE}/{BM_026_BASE}{dt}.xml" for dt in dates_with_half_hourly_timestamps]
         tasks = [get_json_data_from_url(url) for url in urls]
         data = await asyncio.gather(*tasks)
         data_on_date = pd.concat(data, ignore_index=True)
         data_by_date.append(data_on_date)
 
-    data_by_date = pd.concat(data_by_date, ignore_index=True)
+    full_data = pd.concat(data_by_date, ignore_index=True)
+
+    return full_data
+
+async def get_bm_084_data(
+    dates: List[str]
+) -> pd.DataFrame:
+    urls_df = await get_urls(dpug_id='BM-084')
+    filtered_urls_df = urls_df['url'][urls_df['settlement_date'].isin(dates)]
+    tasks = [get_json_data_from_url(f"{DYNAMIC_DOCUMENT_BASE}/{url}") for url in filtered_urls_df]
+    dataframes = await asyncio.gather(*tasks)
+    exchange_rate_data = pd.concat(dataframes, ignore_index=True)
     
-    return data_by_date
-    
-        
+    return exchange_rate_data

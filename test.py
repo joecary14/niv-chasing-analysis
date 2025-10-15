@@ -15,6 +15,7 @@ import data_processing.price_data_processing as price_data_processing
 from gb_analysis.calculate_npt_profit import calculate_npt_welfare_from_id_prices
 import p462_analysis.engine as engine
 import isem_analysis.api_interaction as api_interaction
+import isem_analysis.engine as isem_engine
 
 output_directory = '/Users/josephcary/Library/CloudStorage/OneDrive-Nexus365/Outlook/Investigations/P462 Mod/Code Testing'
 output_filename = '2021 - Nov 2024 Analysis'
@@ -32,7 +33,6 @@ url = 'https://reports.sem-o.com/documents/EF_PT_ALL_20250902_20250903_BALIMB_IN
 years = [2024]
 
 async def main():
-    dates = datetime_functions.generate_settlement_dates('2025-09-30', '2025-10-01', True)
-    data = await api_interaction.get_bm_026_data(dates)
+    await isem_engine.calculate_imbalance_volumes('2025-09-30', '2025-10-03')
     
 asyncio.run(main())
