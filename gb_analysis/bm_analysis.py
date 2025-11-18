@@ -6,6 +6,45 @@ import calendar
 
 from elexonpy.api_client import ApiClient
 
+async def calculate_balancing_costs_breakdown(
+    output_file_directory: str,
+    output_file_name: str,
+    years: list[int]
+) -> None:
+    api_client = ApiClient()
+    all_results = []
+    missing_data = set()
+    for year in years:
+        for month in range(1, 13):
+            month_start_date = f"{year}-{month:02d}-01"
+            month_end_date = f"{year}-{month:02d}-{calendar.monthrange(year, month)[1]:02d}"
+            settlement_dates_with_periods_per_day = datetime_functions.get_settlement_dates_and_settlement_periods_per_day(
+                month_start_date,
+                month_end_date
+            )
+            settlement_stacks = await elexon_interaction.get_full_settlement_stacks_by_date_and_period(
+                api_client,
+                settlement_dates_with_periods_per_day,
+                missing_data
+            )
+            for (settlement_date, settlement_period), settlement_stack in settlement_stacks.items():
+                if settlement_stack.empty:
+                    continue
+                supply_demand_balance_actions = settlement_stack[settlement_stack['so_flag'] == False]
+                system_balance_actions = settlement_stack[settlement_stack['so_flag'] == True]
+                supply_demand_balance_cost = (supply_demand_balance_actions['volume'] * supply_demand_balance_actions['original_price']).sum()
+                system_balance_cost = (system_balance_actions['volume'] * system_balance_actions['original_price']).sum() 
+                all_results.append({
+                    'settlement_date': settlement_date,
+                    'settlement_period': settlement_period,
+                    'supply_demand_balance_cost': supply_demand_balance_cost,
+                    'system_balance_cost': system_balance_cost
+                })
+            print(f"Calculated balancing costs breakdown for {year}-{month:02d}")
+    
+    all_results_df = pd.DataFrame(all_results)
+    excel_interaction.dataframes_to_excel([all_results_df], output_file_directory, output_file_name)
+
 async def get_bm_offer_volume_by_wind(
     output_file_directory: str,
     output_file_name: str,
@@ -47,6 +86,50 @@ async def get_bm_offer_volume_by_wind(
     
     all_results_df = pd.concat(all_results, ignore_index=True)
     excel_interaction.dataframes_to_excel([all_results_df], output_file_directory, output_file_name)
+    
+async def get_bm_volume_by_ccgt(
+    output_file_directory: str,
+    output_file_name: str,
+    years: list[int]
+) -> None:
+    api_client = ApiClient()
+    bm_units = pd.read_json('/Users/josephcary/Library/CloudStorage/OneDrive-Nexus365/First Year/Papers/NIV Chasing/Supporting Data/BM_Units.json')
+    ccgt_set = set(bm_units[bm_units['fuelType'] == 'CCGT']['elexonBmUnit'].to_list())
+    all_results = []
+    missing_data = set()
+    for year in years:
+        for month in range(1, 13):
+            month_start_date = f"{year}-{month:02d}-01"
+            month_end_date = f"{year}-{month:02d}-{calendar.monthrange(year, month)[1]:02d}"
+            settlement_dates_with_periods_per_day = datetime_functions.get_settlement_dates_and_settlement_periods_per_day(
+                month_start_date,
+                month_end_date
+            )
+            full_settlement_stacks_by_date_and_period = await elexon_interaction.get_full_settlement_stacks_by_date_and_period(
+                api_client,
+                settlement_dates_with_periods_per_day,
+                missing_data
+            )
+            
+            results = [
+                calculate_ccgt_bid_offer_volume_one_period(
+                bid_offer_stack, ccgt_set
+                ) for bid_offer_stack in full_settlement_stacks_by_date_and_period.values()  
+            ]
+            results_df = pd.DataFrame(
+                results,
+                columns=[
+                    'settlement_date',
+                    'settlement_period',
+                    'ccgt_bid_volume',
+                    'ccgt_offer_volume'
+                ]
+            )
+            all_results.append(results_df)
+            print(f"Calculated ccgt bid and offer volume for {year}-{month:02d}")
+    
+    all_results_df = pd.concat(all_results, ignore_index=True)
+    excel_interaction.dataframes_to_excel([all_results_df], output_file_directory, output_file_name)
 
 def calculate_wind_offer_and_all_volume_one_period(
     offer_stack: pd.DataFrame,
@@ -67,6 +150,28 @@ def calculate_wind_offer_and_all_volume_one_period(
         wind_offer_volume,
         all_offer_volume,
         wind_offer_percentage
+    )
+    
+def calculate_ccgt_bid_offer_volume_one_period(
+    bid_offer_stack: pd.DataFrame,
+    ccgt_bmu_set: set[str]
+) -> tuple[str, int, float, float]:
+    if bid_offer_stack.empty:
+        return None, None, 0.0, 0.0
+    ccgt_bid_offer_accepted_volume = bid_offer_stack[bid_offer_stack['id'].isin(ccgt_bmu_set)]
+    if ccgt_bid_offer_accepted_volume.empty:
+        return bid_offer_stack.iloc[0]['settlement_date'], bid_offer_stack.iloc[0]['settlement_period'], 0.0, 0.0
+    
+    ccgt_offer_volume = ccgt_bid_offer_accepted_volume[ccgt_bid_offer_accepted_volume['volume'] > 0]['volume'].sum()
+    ccgt_bid_volume = ccgt_bid_offer_accepted_volume[ccgt_bid_offer_accepted_volume['volume'] < 0]['volume'].sum()
+    settlement_date = bid_offer_stack.iloc[0]['settlement_date']
+    settlement_period = bid_offer_stack.iloc[0]['settlement_period']
+    
+    return (
+        settlement_date,
+        settlement_period,
+        ccgt_bid_volume,
+        ccgt_offer_volume
     )
 
 async def calculate_number_of_boa_before_settlement_period(

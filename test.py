@@ -34,6 +34,10 @@ url = 'https://reports.sem-o.com/documents/EF_PT_ALL_20250902_20250903_BALIMB_IN
 years = [2024]
 
 async def main():
-    plotting.plot_niv_kde('/Users/josephcary/Library/CloudStorage/OneDrive-Nexus365/Second Year/Papers/NIV Chasing - I-SEM/Code Testing/imbalance_volumes_2025-09-01_to_2025-09-30_20251015_161236.xlsx')
+    await bm_analysis.get_bm_volume_by_ccgt(
+        '/Users/josephcary/Library/CloudStorage/OneDrive-Nexus365/Second Year/Side Projects/BM Volumes',
+        'CCGT Bid Offer Volume',
+        [2024]
+    )
     
 asyncio.run(main())

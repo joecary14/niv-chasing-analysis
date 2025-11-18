@@ -28,6 +28,43 @@ async def recalculate_niv(
 
     return combined_data
 
+async def recalculate_niv_zero_metered_volume(
+    settlement_dates_and_periods_per_day: dict[str, int],
+    mr1b_df: pd.DataFrame,
+    bsc_roles_to_npt_mapping: str,
+    missing_data: set[tuple[str, int]],
+    api_client: ApiClient
+) -> pd.DataFrame:
+    niv_data = await elexon_interaction.get_niv_data(settlement_dates_and_periods_per_day, api_client)
+    niv_data.drop(columns=['start_time'], inplace=True)
+    npt_zero_mv_imbalances = get_npt_imbalance_data_zero_metered_volume(
+        mr1b_df,
+        bsc_roles_to_npt_mapping
+    )
+    # npt_imbalance = get_npt_imbalance_data(
+    #     mr1b_df,
+    #     bsc_roles_to_npt_mapping
+    # )
+    
+    outturn_system_length = standardize_merge_columns(niv_data)
+    npt_zero_mv_imbalances = standardize_merge_columns(npt_zero_mv_imbalances)
+    # npt_imbalance = standardize_merge_columns(npt_imbalance)
+    combined_data = outturn_system_length.merge(
+        npt_zero_mv_imbalances, 
+        on=['settlement_date', 'settlement_period'], 
+        how='outer')
+    # .merge(
+    #     npt_imbalance,
+    #     on=['settlement_date', 'settlement_period'],
+    #     how='outer'
+    # )
+    combined_data['counterfactual_niv'] = combined_data['net_imbalance_volume'] + combined_data['npt_total_imbalance']
+    # combined_data['counterfactual_niv'] = combined_data['net_imbalance_volume'] + combined_data['npt_total_imbalance']
+    missing_dates_and_periods = check_missing_data(combined_data, settlement_dates_and_periods_per_day)
+    missing_data.update(missing_dates_and_periods)
+
+    return combined_data
+
 def get_bsc_id_to_npt_mapping(
     bsc_roles_filepath: str,
     strict_npt_mapping: bool
@@ -75,16 +112,29 @@ def get_npt_imbalance_data(
 ) -> pd.DataFrame:
     mr1b_df = mr1b_df.map(lambda x: x.strip() if isinstance(x, str) else x)
     mr1b_df_npts_only = mr1b_df[mr1b_df['Party ID'].map(bsc_roles_to_npt_mapping) == True]
-    settlement_dates = []
-    settlement_periods = []
-    energy_imbalances = []
-    for settlement_date, group in mr1b_df_npts_only.groupby('Settlement Date'):
-        for settlement_period, group_by_period in group.groupby('Settlement Period'):
-            energy_imbalance = group_by_period['Energy Imbalance Vol'].sum()
-            settlement_dates.append(settlement_date)
-            settlement_periods.append(settlement_period)
-            energy_imbalances.append(energy_imbalance)
+    # settlement_dates = []
+    # settlement_periods = []
+    # energy_imbalances = []
+    # for settlement_date, group in mr1b_df_npts_only.groupby('Settlement Date'):
+    #     for settlement_period, group_by_period in group.groupby('Settlement Period'):
+    #         energy_imbalance = group_by_period['Energy Imbalance Vol'].sum()
+    #         settlement_dates.append(settlement_date)
+    #         settlement_periods.append(settlement_period)
+    #         energy_imbalances.append(energy_imbalance)
     grouped = mr1b_df_npts_only.groupby(['Settlement Date', 'Settlement Period'])['Energy Imbalance Vol'].sum().reset_index()
+    grouped.columns = ['settlement_date', 'settlement_period', 'npt_total_imbalance']
+    
+    return grouped
+
+def get_npt_imbalance_data_zero_metered_volume(
+    mr1b_df: pd.DataFrame,
+    bsc_roles_to_npt_mapping: dict
+) -> pd.DataFrame:
+    mr1b_df = mr1b_df.map(lambda x: x.strip() if isinstance(x, str) else x)
+    mr1b_df_npts_only = mr1b_df[mr1b_df['Party ID'].map(bsc_roles_to_npt_mapping) == True]
+    credited_energy_vol_column_name = 'Credited Energy Vol' if 'Credited Energy Vol' in mr1b_df_npts_only.columns else 'CreditedEnergyVol'
+    mr1b_df_npts_zero_metered_vol_only = mr1b_df_npts_only[mr1b_df_npts_only[credited_energy_vol_column_name] == 0]
+    grouped = mr1b_df_npts_zero_metered_vol_only.groupby(['Settlement Date', 'Settlement Period'])['Energy Imbalance Vol'].sum().reset_index()
     grouped.columns = ['settlement_date', 'settlement_period', 'npt_total_imbalance']
     
     return grouped
