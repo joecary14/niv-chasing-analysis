@@ -34,10 +34,13 @@ url = 'https://reports.sem-o.com/documents/EF_PT_ALL_20250902_20250903_BALIMB_IN
 years = [2024]
 
 async def main():
-    await bm_analysis.get_bm_volume_by_ccgt(
-        '/Users/josephcary/Library/CloudStorage/OneDrive-Nexus365/Second Year/Side Projects/BM Volumes',
-        'CCGT Bid Offer Volume',
-        [2024]
+    plots_from_excel.create_qq_plots(
+        '/Users/josephcary/Library/CloudStorage/OneDrive-Nexus365/First Year/Papers/NIV Chasing/Results/Final Results/Comparison.xlsx',
+        'System Prices',
+        'Factual',
+        'AMV',
+        'ZMV',
+        output_path='/Users/josephcary/Library/CloudStorage/OneDrive-Nexus365/First Year/Papers/NIV Chasing/Results/Final Results/Plots/QQ_Plot_System_Prices.pdf',
     )
     
 asyncio.run(main())

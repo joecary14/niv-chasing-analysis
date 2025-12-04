@@ -4,6 +4,7 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 import scipy.stats as stats
 import numpy as np
+from typing import Optional, Sequence, Dict
 
 def violin_plot(
     input_data_filepath: str,
@@ -220,51 +221,6 @@ def create_q_q_plot(
     
 
     plt.savefig(f"{output_directory}/{output_filename}")
-    plt.show()
-    plt.close()
-
-def plot_empirical_cdf(
-    input_data_filepath: str,
-    headers_to_plot: list[str],
-    output_directory: str,
-    output_filename: str
-) -> None:
-    
-    df = pd.read_excel(input_data_filepath)
-    df = df[headers_to_plot]
-    df = df.dropna()
-    # Set axis limits to 1st-99th percentile range
-    all_data = pd.concat([df[header] for header in headers_to_plot])
-    p1, p99 = np.percentile(all_data, [1, 99])
-    
-    plt.figure(figsize=(10, 6))
-    
-    for header in headers_to_plot:
-        data = df[header].values
-        data_sorted = sorted(data)
-        n = len(data_sorted)
-        y = [i/n for i in range(1, n+1)]  # Empirical CDF values
-        plt.plot(data_sorted, y, label=header, linewidth=2)
-    
-    plt.title('Empirical Cumulative Distribution Functions')
-    plt.xlabel('Value')
-    plt.ylabel('Cumulative Probability')
-    plt.legend()
-    plt.grid(True, alpha=0.3)
-    plt.xlim(p1, p99)
-    plt.ylim(0, 1)
-    plt.tight_layout()
-    
-    output_directory = output_directory.rstrip('/')
-    if not output_filename.lower().endswith(('.png', '.jpg', '.jpeg', '.pdf', '.svg')):
-        output_filename += '.png'
-    
-    filename = f"{output_directory}/{output_filename}"
-    if os.path.exists(filename):
-        output_filename = output_filename.replace('.png', f"_{pd.Timestamp.now().strftime('%Y-%m-%d_%H-%M-%S')}.png")
-        filename = f"{output_directory}/{output_filename}"
-    
-    plt.savefig(filename)
     plt.show()
     plt.close()
     
@@ -528,3 +484,406 @@ def plot_kernel_density_difference(
         plt.savefig(filename)
         plt.show()
         plt.close()
+
+def _infer_columns(df: pd.DataFrame, preferred: Sequence[str]) -> Dict[str, str]:
+    """Find best-matching column names in df for each preferred name (case-insensitive, substring)."""
+    cols = list(df.columns)
+    lookup = {}
+    lowered = [c.lower() for c in cols]
+    for name in preferred:
+        target = name.lower()
+        # exact match
+        if name in cols:
+            lookup[name] = name
+            continue
+        if target in lowered:
+            lookup[name] = cols[lowered.index(target)]
+            continue
+        # substring match
+        match = None
+        for c, lc in zip(cols, lowered):
+            if target in lc or lc in target:
+                match = c
+                break
+        if match:
+            lookup[name] = match
+    return lookup
+
+def create_ecdf_plot(
+    excel_path: str,
+    sheet_name: str,
+    columns: Optional[Dict[str, str]] = None,
+    output_path: str = "ecdf_niv.pdf",
+    figsize=(8, 5),
+    fontsize=12,
+    save_svg: bool = False,
+    save_eps: bool = False,
+):
+
+    df = pd.read_excel(excel_path, sheet_name=sheet_name)
+
+    expected = ['factual', 'AMV', 'ZMV']
+    if columns is None:
+        inferred = _infer_columns(df, expected)
+    else:
+        inferred = columns.copy()
+
+    missing = [k for k in expected if k not in inferred]
+    if missing:
+        raise ValueError(
+            "Missing scenario columns: "
+            f"{missing}. Available: {list(df.columns)}"
+        )
+
+    s_f = pd.Series(df[inferred['factual']]).dropna().astype(float)
+    s_a = pd.Series(df[inferred['AMV']]).dropna().astype(float)
+    s_z = pd.Series(df[inferred['ZMV']]).dropna().astype(float)
+
+    def ecdf_values(arr: np.ndarray):
+        n = arr.size
+        if n == 0:
+            return np.array([]), np.array([])
+        x = np.sort(arr)
+        y = np.arange(1, n + 1) / n
+        return x, y
+
+    xf, yf = ecdf_values(s_f.values)
+    xa, ya = ecdf_values(s_a.values)
+    xz, yz = ecdf_values(s_z.values)
+
+    # ------------------------------------------------------------
+    # Compute global x-limits (1st–99th percentile across all scenarios)
+    # ------------------------------------------------------------
+    combined = np.concatenate([s_f.values, s_a.values, s_z.values])
+    x_lo = np.percentile(combined, 1)
+    x_hi = np.percentile(combined, 99)
+    x_lo = -1000
+    x_hi = 1000
+
+    # ------------------------------------------------------------
+    # Plot
+    # ------------------------------------------------------------
+    plt.close('all')
+    fig, ax = plt.subplots(figsize=figsize)
+    plt.rcParams.update({'font.size': fontsize})
+
+    # Plot each ECDF only within the restricted x-range
+    def plot_trimmed(x, y, label, **kwargs):
+        if x.size == 0:
+            return
+        mask = (x >= x_lo) & (x <= x_hi)
+        if mask.sum() == 0:
+            return
+        ax.step(x[mask], y[mask], where='post', label=label, **kwargs)
+
+    plot_trimmed(xf, yf, 'Factual', linewidth=1.5)
+    plot_trimmed(xa, ya, 'AMV (no NPT)', linewidth=1.25, linestyle='--')
+    plot_trimmed(xz, yz, 'ZMV (no NPT)', linewidth=1.25, linestyle=':')
+
+    ax.set_xlabel('Net Imbalance Volume (MWh)')
+    ax.set_ylabel('Empirical Cumulative Probability')
+    ax.set_xlim(x_lo, x_hi)
+    ax.set_ylim(-0.02, 1.02)
+    ax.grid(axis='y', linestyle='--', linewidth=0.5, alpha=0.7)
+    ax.legend(frameon=False)
+    ax.ticklabel_format(axis='x', style='sci', scilimits=(-3, 4))
+    ax.axvline(0, color='black', linestyle='--', linewidth=1)
+    plt.tight_layout()
+
+    out_dir = os.path.dirname(os.path.abspath(output_path)) or '.'
+    os.makedirs(out_dir, exist_ok=True)
+
+    plt.savefig(output_path, format='pdf', bbox_inches='tight')
+    base, ext = os.path.splitext(output_path)
+    if save_svg:
+        plt.savefig(base + '.svg', format='svg', bbox_inches='tight')
+    if save_eps:
+        plt.savefig(base + '.eps', format='eps', bbox_inches='tight')
+    plt.close(fig)
+
+    return os.path.abspath(output_path)
+
+def create_difference_bar_chart_from_raw(
+    excel_path: str,
+    sheet_name: str,
+    year_col: str = "Year",
+    factual_col: str = "Factual",
+    amv_col: str = "AMV",
+    zmv_col: str = "ZMV",
+    output_path: str = "niv_differences_by_year.pdf",
+    figsize=(7, 4),
+    fontsize=12,
+    aggfunc="sum",   # or "mean"
+    save_svg: bool = False,
+    save_eps: bool = False,
+):
+    """
+    Read raw (row-level) Excel data, aggregate by `year_col`, compute AMV–Factual and ZMV–Factual
+    per year, and produce a grouped bar chart saved as a vector file suitable for Overleaf.
+
+    Parameters
+    ----------
+    excel_path : str
+        Path to the Excel file.
+    sheet_name : str
+        Sheet name (or index).
+    year_col, factual_col, amv_col, zmv_col : str
+        Column names in the sheet.
+    output_path : str
+        Output file path (PDF by default).
+    aggfunc : {"sum","mean"} or callable
+        How to aggregate rows within each year.
+    """
+    # Read data
+    df = pd.read_excel(excel_path, sheet_name=sheet_name)
+
+    if year_col not in df.columns:
+        raise KeyError(f"Year column '{year_col}' not found in sheet. Available columns: {list(df.columns)}")
+
+    # Ensure numeric columns exist
+    for c in (factual_col, amv_col, zmv_col):
+        if c not in df.columns:
+            raise KeyError(f"Required column '{c}' not found in sheet. Available columns: {list(df.columns)}")
+        # coerce to numeric, allow errors -> NaN
+        df[c] = pd.to_numeric(df[c], errors="coerce")
+
+    # Normalize year column (if datetime-like, extract year)
+    if pd.api.types.is_datetime64_any_dtype(df[year_col]):
+        df["_year_norm"] = df[year_col].dt.year
+    else:
+        # Try integer conversion (handles strings like "2021")
+        df["_year_norm"] = pd.to_numeric(df[year_col], errors="coerce").astype('Int64')
+
+    if df["_year_norm"].isna().any():
+        raise ValueError("Some Year values could not be parsed as years. Check the Year column.")
+
+    # Aggregate by year
+    if aggfunc == "sum":
+        agg = df.groupby("_year_norm")[[factual_col, amv_col, zmv_col]].sum(min_count=1)
+    elif aggfunc == "mean":
+        agg = df.groupby("_year_norm")[[factual_col, amv_col, zmv_col]].mean()
+    else:
+        # allow callable
+        agg = df.groupby("_year_norm")[[factual_col, amv_col, zmv_col]].agg(aggfunc)
+
+    agg = agg.sort_index()
+    years = list(agg.index.astype(int))
+
+    # Compute differences
+    diff_amv = (agg[amv_col] - agg[factual_col])/1000000  # Convert to TWh
+    diff_zmv = (agg[zmv_col] - agg[factual_col])/1000000  # Convert to TWh
+
+    # Plot
+    plt.close('all')
+    fig, ax = plt.subplots(figsize=figsize)
+    plt.rcParams.update({'font.size': fontsize})
+
+    x = list(range(len(years)))
+    bar_width = 0.35
+
+    ax.bar([i - bar_width/2 for i in x], diff_amv, width=bar_width, label="AMV – Factual")
+    ax.bar([i + bar_width/2 for i in x], diff_zmv, width=bar_width, label="ZMV – Factual")
+
+    ax.set_xticks(x)
+    ax.set_xticklabels(years)
+    ax.set_xlabel("Year")
+    ax.set_ylabel("Difference in BM costs (£m, nominal)")
+    ax.ticklabel_format(axis='y', style='plain')
+    ax.grid(axis='y', linestyle='--', linewidth=0.5, alpha=0.7)
+    ax.legend(frameon=False)
+    plt.tight_layout()
+
+    # Save vector output
+    out_dir = os.path.dirname(os.path.abspath(output_path)) or '.'
+    os.makedirs(out_dir, exist_ok=True)
+
+    plt.savefig(output_path, format='pdf', bbox_inches='tight')
+    base, _ = os.path.splitext(output_path)
+    if save_svg:
+        plt.savefig(base + '.svg', format='svg', bbox_inches='tight')
+    if save_eps:
+        plt.savefig(base + '.eps', format='eps', bbox_inches='tight')
+    plt.close(fig)
+
+    return os.path.abspath(output_path)
+
+def create_qq_plots(
+    excel_path: str,
+    sheet_name: str,
+    factual_col: str = "Price_Factual",
+    amv_col: str = "Price_AMV",
+    zmv_col: str = "Price_ZMV",
+    output_path: str = "qq_prices.pdf",
+    figsize=(10, 5),
+    fontsize=12,
+    save_svg=False,
+    save_eps=False,
+):
+    """
+    Create a two-panel Q–Q figure:
+      • Top panel: Factual vs AMV
+      • Bottom panel: Factual vs ZMV
+    Both panels share the same factual x-axis.
+    """
+
+    # Read data
+    df = pd.read_excel(excel_path, sheet_name=sheet_name)
+
+    # Extract and drop missing
+    f = pd.to_numeric(df[factual_col], errors="coerce").dropna()
+    a = pd.to_numeric(df[amv_col], errors="coerce").dropna()
+    z = pd.to_numeric(df[zmv_col], errors="coerce").dropna()
+
+    # Align lengths via quantiles for Q-Q comparison
+    def qq_pair(base, other, n=200):
+        qs = np.linspace(0, 1, n)
+        return (
+            np.quantile(base, qs),
+            np.quantile(other, qs)
+        )
+
+    xf_amv, ya_amv = qq_pair(f, a)
+    xf_zmv, ya_zmv = qq_pair(f, z)
+
+    # Plot
+    plt.close('all')
+    fig, axes = plt.subplots(1, 2, figsize=figsize, sharex=True)
+    plt.rcParams.update({'font.size': fontsize})
+    all_prices = pd.concat([f, a, z])
+    x_lo = np.percentile(all_prices, 1)
+    x_hi = np.percentile(all_prices, 99)
+
+    # Apply axis limits to both subplots
+
+    # --- AMV subplot ---
+    ax1 = axes[0]
+    ax1.scatter(xf_amv, ya_amv, s=12)
+    ax1.plot([xf_amv.min(), xf_amv.max()],
+             [xf_amv.min(), xf_amv.max()],
+             color='black', linewidth=1)
+    ax1.set_xlim(x_lo, x_hi)
+    ax1.set_ylim(x_lo, x_hi)
+    ax1.set_xlabel("Factual price (£/MWh)")
+    ax1.set_ylabel("AMV price (£/MWh)")
+    ax1.grid(True, linestyle='--', linewidth=0.4, alpha=0.7)
+
+    # --- ZMV subplot ---
+    ax2 = axes[1]
+    ax2.scatter(xf_zmv, ya_zmv, s=12)
+    ax2.plot([xf_zmv.min(), xf_zmv.max()],
+             [xf_zmv.min(), xf_zmv.max()],
+             color='black', linewidth=1)
+    ax2.set_xlabel("Factual price (£/MWh)")
+    ax2.set_ylabel("ZMV price (£/MWh)")
+    ax2.set_xlim(x_lo, x_hi)
+    ax2.set_ylim(x_lo, x_hi)
+    ax2.grid(True, linestyle='--', linewidth=0.4, alpha=0.7)
+
+    plt.tight_layout()
+
+    # Save vector
+    out_dir = os.path.dirname(os.path.abspath(output_path)) or '.'
+    os.makedirs(out_dir, exist_ok=True)
+
+    plt.savefig(output_path, format='pdf', bbox_inches='tight')
+    base, _ = os.path.splitext(output_path)
+    if save_svg:
+        plt.savefig(base + '.svg', format='svg', bbox_inches='tight')
+    if save_eps:
+        plt.savefig(base + '.eps', format='eps', bbox_inches='tight')
+
+    plt.close(fig)
+    return os.path.abspath(output_path)
+
+def create_boxplots(
+    excel_path: str,
+    sheet_name: str,
+    factual_col: str = "Price_Factual",
+    amv_col: str = "Price_AMV",
+    zmv_col: str = "Price_ZMV",
+    output_path: str = "box_prices.pdf",
+    figsize=(10, 5),
+    fontsize=12,
+    save_svg=False,
+    save_eps=False,
+):
+    """
+    Adapted from your Q-Q function: produces two side-by-side box-and-whisker plots.
+      • Left:  Factual vs AMV
+      • Right: Factual vs ZMV
+    The vertical axis (price) is limited to the 1st–99th percentiles across all three series.
+    """
+
+    # Read data
+    df = pd.read_excel(excel_path, sheet_name=sheet_name)
+
+    # Extract and drop missing
+    f = pd.to_numeric(df[factual_col], errors="coerce").dropna()
+    a = pd.to_numeric(df[amv_col], errors="coerce").dropna()
+    z = pd.to_numeric(df[zmv_col], errors="coerce").dropna()
+
+    # Compute common 1st–99th percentile window
+    all_prices = pd.concat([f, a, z])
+    x_lo = np.percentile(all_prices, 1)
+    x_hi = np.percentile(all_prices, 99)
+
+    # Prepare figure: two subplots, share y-axis
+    plt.close('all')
+    fig, axes = plt.subplots(1, 2, figsize=figsize, sharey=True)
+    plt.rcParams.update({'font.size': fontsize})
+
+    # --- Left: Factual vs AMV ---
+    ax1 = axes[0]
+    box_data_amv = [f.values, a.values]
+    b1 = ax1.boxplot(
+        box_data_amv,
+        positions=[1, 2],
+        widths=0.6,
+        patch_artist=True,
+        showfliers=True,
+        medianprops=dict(color='black'),
+    )
+    # optional styling: light fill
+    for patch, color in zip(b1['boxes'], ['#c6dbef', '#9ecae1']):
+        patch.set_facecolor(color)
+    ax1.set_xticks([1, 2])
+    ax1.set_xticklabels(['Factual', 'AMV'])
+    ax1.set_ylabel('Price')
+    ax1.set_title('Factual vs AMV')
+    ax1.grid(axis='y', linestyle='--', linewidth=0.4, alpha=0.7)
+    ax1.set_ylim(x_lo, x_hi)
+
+    # --- Right: Factual vs ZMV ---
+    ax2 = axes[1]
+    box_data_zmv = [f.values, z.values]
+    b2 = ax2.boxplot(
+        box_data_zmv,
+        positions=[1, 2],
+        widths=0.6,
+        patch_artist=True,
+        showfliers=True,
+        medianprops=dict(color='black'),
+    )
+    for patch, color in zip(b2['boxes'], ['#fde0dd', '#fa9fb5']):
+        patch.set_facecolor(color)
+    ax2.set_xticks([1, 2])
+    ax2.set_xticklabels(['Factual', 'ZMV'])
+    ax2.set_title('Factual vs ZMV')
+    ax2.grid(axis='y', linestyle='--', linewidth=0.4, alpha=0.7)
+    ax2.set_ylim(x_lo, x_hi)
+
+    plt.tight_layout()
+
+    # Save vector output
+    out_dir = os.path.dirname(os.path.abspath(output_path)) or '.'
+    os.makedirs(out_dir, exist_ok=True)
+
+    plt.savefig(output_path, format='pdf', bbox_inches='tight')
+    base, _ = os.path.splitext(output_path)
+    if save_svg:
+        plt.savefig(base + '.svg', format='svg', bbox_inches='tight')
+    if save_eps:
+        plt.savefig(base + '.eps', format='eps', bbox_inches='tight')
+
+    plt.close(fig)
+    return os.path.abspath(output_path)

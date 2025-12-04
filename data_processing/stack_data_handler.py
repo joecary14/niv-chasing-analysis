@@ -203,6 +203,8 @@ def get_new_ordered_settlement_stack(
     full_ascending_settlement_stack_one_period: pd.DataFrame
 ) -> pd.DataFrame:
     non_empty_new_acceptances = [acceptance for acceptance in new_acceptances if acceptance.empty == False]
+    if len(non_empty_new_acceptances) == 0:
+        return full_ascending_settlement_stack_one_period.copy()
     new_acceptances_df = pd.concat(non_empty_new_acceptances, ignore_index=True)
     new_acceptances_df = new_acceptances_df.reindex(columns=full_ascending_settlement_stack_one_period.columns, fill_value=np.nan)
     new_settlement_stack = pd.concat([full_ascending_settlement_stack_one_period, new_acceptances_df], ignore_index=True)

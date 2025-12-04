@@ -106,6 +106,17 @@ def get_bsc_roles_to_generator_mapping(
         
     return bsc_id_to_generator_mapping
 
+def get_bsc_roles_to_mixed_role_mapping(
+    bsc_roles_filepath: str
+) -> dict[str, bool]:
+    bsc_roles_df = pd.read_excel(bsc_roles_filepath)
+    bsc_id_to_mixed_role_mapping = {}
+    for _, row in bsc_roles_df.iterrows():
+        is_mixed_role = (row['TN'] and row['TS']) or (row['TN'] and row['TG']) or (row['TS'] and row['TG'])
+        bsc_id_to_mixed_role_mapping[row['BSC_ID']] = is_mixed_role
+        
+    return bsc_id_to_mixed_role_mapping
+
 def get_npt_imbalance_data(
     mr1b_df: pd.DataFrame,
     bsc_roles_to_npt_mapping: dict
