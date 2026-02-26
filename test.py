@@ -17,6 +17,9 @@ import p462_analysis.engine as engine
 import isem_analysis.api_interaction as api_interaction
 import isem_analysis.engine as isem_engine
 import isem_analysis.plotting as plotting
+import rnp_analysis.mip_analysis as mip_analysis
+import rnp_analysis.constraint_analysis as constraint_analysis
+import rnp_analysis.cadl_analysis as cadl_analysis
 
 output_directory = '/Users/josephcary/Library/CloudStorage/OneDrive-Nexus365/Outlook/Investigations/P462 Mod/Code Testing'
 output_filename = '2021 - Nov 2024 Analysis'
@@ -34,13 +37,6 @@ url = 'https://reports.sem-o.com/documents/EF_PT_ALL_20250902_20250903_BALIMB_IN
 years = [2024]
 
 async def main():
-    plots_from_excel.create_qq_plots(
-        '/Users/josephcary/Library/CloudStorage/OneDrive-Nexus365/First Year/Papers/NIV Chasing/Results/Final Results/Comparison.xlsx',
-        'System Prices',
-        'Factual',
-        'AMV',
-        'ZMV',
-        output_path='/Users/josephcary/Library/CloudStorage/OneDrive-Nexus365/First Year/Papers/NIV Chasing/Results/Final Results/Plots/QQ_Plot_System_Prices.pdf',
-    )
+    await cadl_analysis.export_cadl_recalculated_system_sell_prices('2024-01-01', '2024-12-31', 5)
     
 asyncio.run(main())

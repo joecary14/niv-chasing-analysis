@@ -1,4 +1,5 @@
 import asyncio
+import warnings
 
 import pandas as pd
 
@@ -13,6 +14,28 @@ from elexonpy.api.reference_api import ReferenceApi
 from elexonpy.rest import ApiException
 
 from data_processing.bm_physical_data_handler import get_physical_volume
+
+
+def _concat_valid_dataframes(dataframes: list[pd.DataFrame], ignore_index: bool = True) -> pd.DataFrame:
+    cleaned_dataframes = []
+    for dataframe in dataframes:
+        if dataframe is None or dataframe.empty:
+            continue
+        cleaned_dataframe = dataframe.dropna(axis=0, how='all')
+        if cleaned_dataframe.empty:
+            continue
+        cleaned_dataframes.append(cleaned_dataframe)
+
+    if not cleaned_dataframes:
+        return pd.DataFrame()
+
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            'ignore',
+            message='The behavior of DataFrame concatenation with empty or all-NA entries is deprecated.*',
+            category=FutureWarning
+        )
+        return pd.concat(cleaned_dataframes, ignore_index=ignore_index)
 
 async def fetch_data_by_settlement_date(
     settlement_dates: list[str], 
@@ -69,7 +92,7 @@ async def get_niv_data(
         column_headers_to_keep=['start_time', 'settlement_date', 'settlement_period', 'net_imbalance_volume', 'system_sell_price']
     )
     
-    niv_data = pd.concat(niv_data_dfs, ignore_index=True)
+    niv_data = _concat_valid_dataframes(niv_data_dfs, ignore_index=True)
     
     return niv_data
 
@@ -104,10 +127,17 @@ async def get_full_ascending_settlement_stack_one_period(
     offer_settlement_stack, bid_settlement_stack = results
     
     non_empty_stacks = [df for df in [offer_settlement_stack, bid_settlement_stack] if not df.empty]
-    
+
     if non_empty_stacks:
-        full_settlement_stack_one_period = pd.concat(non_empty_stacks)
-        full_ordered_settlement_stack_one_period = full_settlement_stack_one_period.sort_values(by=['original_price', 'bid_offer_pair_id'], ascending=[True, True])
+        full_settlement_stack_one_period = _concat_valid_dataframes(non_empty_stacks, ignore_index=True)
+        if full_settlement_stack_one_period.empty:
+            full_ordered_settlement_stack_one_period = pd.DataFrame()
+            missing_data.add((settlement_date, settlement_period))
+            return ((settlement_date, settlement_period), full_ordered_settlement_stack_one_period)
+        full_ordered_settlement_stack_one_period = full_settlement_stack_one_period.sort_values(
+            by=['original_price', 'bid_offer_pair_id'],
+            ascending=[True, True]
+        )
         full_ordered_settlement_stack_one_period.reset_index(drop=True, inplace=True)
     else:
         full_ordered_settlement_stack_one_period = pd.DataFrame()
@@ -192,7 +222,7 @@ async def get_full_midp_data(
 ) -> pd.DataFrame:
     market_index_api = MarketIndexApi(api_client)
     market_index_data = await fetch_data_from_and_to_date(settlement_dates_with_periods_per_day, market_index_api.balancing_pricing_market_index_get)
-    combined_market_index_data = pd.concat(market_index_data)
+    combined_market_index_data = _concat_valid_dataframes(market_index_data, ignore_index=True)
     
     return combined_market_index_data
 
@@ -205,7 +235,7 @@ async def get_price_adjustment_data(
     price_adjustment_data = await fetch_data_from_and_to_date(settlement_dates_with_periods_per_day, net_bsad_api.balancing_nonbm_netbsad_get, columns_to_download_from_api)
     if all(df.empty for df in price_adjustment_data):
         return pd.DataFrame()
-    combined_price_adjustment_data = pd.concat(price_adjustment_data)
+    combined_price_adjustment_data = _concat_valid_dataframes(price_adjustment_data, ignore_index=True)
     
     return combined_price_adjustment_data
 

@@ -1,6 +1,6 @@
 import asyncio
 
-from gb_analysis.engine import run, determine_supplier_net_position
+from gb_analysis.engine import run
 
 years = [2021]
 months = [i for i in range(10, 13)]  # January to December
