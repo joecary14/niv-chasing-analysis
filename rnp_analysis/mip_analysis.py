@@ -4,6 +4,8 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import statsmodels.api as sm
+from scipy.stats import f
 
 from ancillary_files.datetime_functions import get_settlement_dates_and_settlement_periods_per_day
 from ancillary_files.excel_interaction import create_filepath
@@ -11,11 +13,8 @@ from data_collection.elexon_interaction import get_niv_data
 from data_processing.price_data_processing import get_market_index_price_data
 from elexonpy.api_client import ApiClient
 
-IMBALANCE_VOUME_DATA_FILEPATH = '/Users/josephcary/Library/CloudStorage/OneDrive-Nexus365/Second Year/RNP/Analysis/Imbalance Volume Data.xlsx'
-COMBINED_DATA_FILEPATH = '/Users/josephcary/Library/CloudStorage/OneDrive-Nexus365/Second Year/RNP/Analysis/Imbalance Volume Data_with_mip_system_sell_price_2021-01-01_to_2024-12-31.xlsx'
-
-
-
+IMBALANCE_VOLUME_DATA_FILEPATH = '/Users/josephcary/Library/CloudStorage/OneDrive-Nexus365/Second Year/RNP/Analysis/Imbalance Volume Data_with_recalculated_niv_2025-01-01_to_2025-12-31.xlsx'
+COMBINED_DATA_FILEPATH = '/Users/josephcary/Library/CloudStorage/OneDrive-Nexus365/Second Year/RNP/Analysis/Imbalance Volume Data_with_mip_system_sell_price_2021-01-01_to_2025-12-31.xlsx'
 
 def _normalise_settlement_keys(data: pd.DataFrame) -> pd.DataFrame:
     normalised_data = data.copy()
@@ -39,7 +38,7 @@ async def get_mip_and_system_sell_price_data(
 ) -> pd.DataFrame:
     settlement_dates_and_periods_per_day = get_settlement_dates_and_settlement_periods_per_day(start_date, end_date)
     if not settlement_dates_and_periods_per_day:
-        return pd.DataFrame(columns=['settlement_date', 'settlement_period', 'vwap_midp', 'system_sell_price'])
+        return pd.DataFrame(columns=['settlement_date', 'settlement_period', 'vwap_midp', 'apx_midp', 'system_sell_price'])
 
     client = api_client or ApiClient()
 
@@ -104,7 +103,7 @@ async def combine_mip_system_sell_price_with_imbalance_volume(
     sheet_name: str | int = 0,
     api_client: ApiClient | None = None
 ) -> str:
-    imbalance_volume_data = pd.read_excel(IMBALANCE_VOUME_DATA_FILEPATH, sheet_name=sheet_name)
+    imbalance_volume_data = pd.read_excel(IMBALANCE_VOLUME_DATA_FILEPATH, sheet_name=sheet_name)
     imbalance_volume_data = _normalise_imbalance_volume_columns(imbalance_volume_data)
 
     if imbalance_volume_data.empty:
@@ -127,7 +126,7 @@ async def combine_mip_system_sell_price_with_imbalance_volume(
     )
     combined_data = combined_data.sort_values(['settlement_date', 'settlement_period']).reset_index(drop=True)
 
-    input_path = Path(IMBALANCE_VOUME_DATA_FILEPATH)
+    input_path = Path(IMBALANCE_VOLUME_DATA_FILEPATH)
     output_directory = str(input_path.parent)
     output_filename = (
         f"{input_path.stem}_with_mip_system_sell_price_{effective_start_date}_to_{effective_end_date}.xlsx"
@@ -262,5 +261,133 @@ def plot_amv_and_zmv_benefit_ecdfs_by_default_status(
         'AMV': amv_output,
         'ZMV': zmv_output
     }
+
+
+def structural_break_test_from_excel(
+    filepath: str,
+    sheet_name: str | int = 0,
+    time_column: str = 'Year-Month',
+    value_column: str = 'Proportion MIPped',
+    trim_fraction: float = 0.15,
+    output_filename: str | None = None
+) -> str:
+    def _normalise_column_name(column_name: str) -> str:
+        return ''.join(character for character in column_name.lower() if character.isalnum())
+
+    data = pd.read_excel(filepath, sheet_name=sheet_name)
+    column_lookup = {
+        _normalise_column_name(column_name): column_name
+        for column_name in data.columns
+    }
+    resolved_time_column = column_lookup.get(_normalise_column_name(time_column))
+    resolved_value_column = column_lookup.get(_normalise_column_name(value_column))
+    if resolved_time_column is None or resolved_value_column is None:
+        raise ValueError(
+            f"Could not find required columns '{time_column}' and '{value_column}'. "
+            f'Available columns: {list(data.columns)}'
+        )
+
+    model_data = data[[resolved_time_column, resolved_value_column]].copy()
+    model_data = model_data.rename(
+        columns={
+            resolved_time_column: 'year_month',
+            resolved_value_column: 'proportion_mipped'
+        }
+    )
+    model_data['year_month'] = pd.to_datetime(model_data['year_month'], format='%Y-%m', errors='coerce')
+    if model_data['year_month'].isna().any():
+        model_data['year_month'] = pd.to_datetime(model_data['year_month'], errors='coerce')
+    model_data['proportion_mipped'] = pd.to_numeric(model_data['proportion_mipped'], errors='coerce')
+    model_data = model_data.dropna(subset=['year_month', 'proportion_mipped'])
+    model_data = model_data.sort_values('year_month').drop_duplicates(subset=['year_month'], keep='first')
+    model_data = model_data.reset_index(drop=True)
+
+    n_obs = len(model_data)
+    if n_obs < 12:
+        raise ValueError('At least 12 observations are required for a structural break test.')
+
+    min_segment = max(4, int(np.floor(n_obs * trim_fraction)))
+    if n_obs - 2 * min_segment < 1:
+        raise ValueError(
+            'Not enough observations after trimming. Reduce trim_fraction or provide more data.'
+        )
+
+    y = model_data['proportion_mipped'].to_numpy(dtype=float)
+    time_index = np.arange(n_obs, dtype=float)
+
+    restricted_x = sm.add_constant(time_index)
+    restricted_model = sm.OLS(y, restricted_x).fit()
+    restricted_rss = float(np.sum(restricted_model.resid ** 2))
+
+    best_result: dict[str, float | int | str | object] | None = None
+    candidate_breakpoints = range(min_segment, n_obs - min_segment)
+
+    for breakpoint_index in candidate_breakpoints:
+        breakpoint_dummy = (time_index >= breakpoint_index).astype(float)
+        post_break_trend = np.where(time_index >= breakpoint_index, time_index - breakpoint_index, 0.0)
+        unrestricted_x = np.column_stack([
+            np.ones(n_obs),
+            time_index,
+            breakpoint_dummy,
+            post_break_trend
+        ])
+        unrestricted_model = sm.OLS(y, unrestricted_x).fit()
+        unrestricted_rss = float(np.sum(unrestricted_model.resid ** 2))
+
+        q_restrictions = unrestricted_x.shape[1] - restricted_x.shape[1]
+        unrestricted_df_resid = n_obs - unrestricted_x.shape[1]
+        if unrestricted_df_resid <= 0:
+            continue
+
+        numerator = (restricted_rss - unrestricted_rss) / q_restrictions
+        denominator = unrestricted_rss / unrestricted_df_resid
+        if denominator <= 0:
+            continue
+
+        f_statistic = numerator / denominator
+        p_value = 1 - f.cdf(f_statistic, q_restrictions, unrestricted_df_resid)
+
+        if best_result is None or f_statistic > best_result['f_statistic']:
+            best_result = {
+                'breakpoint_index': breakpoint_index,
+                'break_date': model_data.loc[breakpoint_index, 'year_month'].strftime('%Y-%m'),
+                'f_statistic': float(f_statistic),
+                'p_value': float(p_value),
+                'q_restrictions': q_restrictions,
+                'df_resid': unrestricted_df_resid,
+                'unrestricted_model': unrestricted_model
+            }
+
+    if best_result is None:
+        raise ValueError('Unable to compute a valid structural break test result.')
+
+    summary_lines = [
+        best_result['unrestricted_model'].summary().as_text(),
+        '',
+        'Structural Break Test (sup-F Chow, single unknown break):',
+        f"Best break date: {best_result['break_date']}",
+        f"F-statistic: {best_result['f_statistic']:.6f}",
+        f"p-value: {best_result['p_value']:.6g}",
+        f"Restrictions (q): {best_result['q_restrictions']}",
+        f"Denominator dof: {best_result['df_resid']}"
+    ]
+
+    summary_text = '\n'.join(summary_lines)
+
+    input_path = Path(filepath)
+    output_directory = input_path.parent
+    if output_filename is None:
+        output_filename = f'{input_path.stem}_structural_break_summary.txt'
+    elif not output_filename.lower().endswith('.txt'):
+        output_filename = f'{output_filename}.txt'
+
+    output_path = output_directory / output_filename
+    if output_path.exists():
+        timestamp = pd.Timestamp.now().strftime('%Y-%m-%d_%H-%M-%S')
+        output_path = output_directory / f'{output_path.stem}_{timestamp}{output_path.suffix}'
+
+    output_path.write_text(summary_text, encoding='utf-8')
+
+    return str(output_path)
 
 

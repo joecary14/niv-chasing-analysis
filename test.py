@@ -20,6 +20,7 @@ import isem_analysis.plotting as plotting
 import rnp_analysis.mip_analysis as mip_analysis
 import rnp_analysis.constraint_analysis as constraint_analysis
 import rnp_analysis.cadl_analysis as cadl_analysis
+import rnp_analysis.misc as misc
 
 output_directory = '/Users/josephcary/Library/CloudStorage/OneDrive-Nexus365/Outlook/Investigations/P462 Mod/Code Testing'
 output_filename = '2021 - Nov 2024 Analysis'
@@ -31,12 +32,15 @@ supporting_data_directory = '/Users/josephcary/Library/CloudStorage/OneDrive-Nex
 imbalance_input_data_filepath = '/Users/josephcary/Library/CloudStorage/OneDrive-Nexus365/First Year/Papers/NIV Chasing/Results/Testing Publication Code/Aggregated Results/Imbalance Results.xlsx'
 system_price_filepath = '/Users/josephcary/Library/CloudStorage/OneDrive-Nexus365/First Year/Papers/NIV Chasing/Supporting Data/System Prices.xlsx'
 figures_directory = '/Users/josephcary/Library/CloudStorage/OneDrive-Nexus365/First Year/Papers/NIV Chasing/Results/Testing Publication Code/Figures'
+bsc_roles_filepath = '/Users/josephcary/Library/CloudStorage/OneDrive-Nexus365/First Year/Papers/NIV Chasing/Supporting Data/FINAL - Elexon BSC Roles.xlsx'
 filename = 'SP Histograms'
 url = 'https://reports.sem-o.com/documents/EF_PT_ALL_20250902_20250903_BALIMB_INDIC_20250903T144659.XML'
 
 years = [2024]
 
 async def main():
+    mip_analysis.structural_break_test_from_excel('/Users/josephcary/Library/CloudStorage/OneDrive-Nexus365/Second Year/RNP/Analysis/Proportion MIPped By Month.xlsx')
+    plots_from_excel.create_q_q_plot('/Users/josephcary/Library/CloudStorage/OneDrive-Nexus365/Second Year/RNP/Analysis/cadl_system_sell_prices_2024-01-01_to_2024-12-31.xlsx', ['system_sell_price', 'recalculated_system_sell_price'], '/Users/josephcary/Library/CloudStorage/OneDrive-Nexus365/Second Year/RNP/Analysis', 'cadl_recalculated_system_sell_price_qq_plot')
     await cadl_analysis.export_cadl_recalculated_system_sell_prices('2024-01-01', '2024-12-31', 5)
     
 asyncio.run(main())
