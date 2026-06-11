@@ -1,26 +1,6 @@
 import asyncio
-import data_collection.elexon_interaction as elexon_interaction
-import ancillary_files.excel_interaction as excel_interaction
-import ancillary_files.datetime_functions as datetime_functions
-import pandas as pd
-import gb_analysis.bm_analysis as bm_analysis
-import gb_analysis.carbon_emissions as carbon_emissions
-from gb_analysis.recalculate_niv import get_bsc_id_to_npt_mapping
-import gb_analysis.recalculate_imbalance_cashflows as recalculate_imbalance_cashflows
-from elexonpy.api_client import ApiClient
-from  data_processing.price_data_processing import get_ancillary_price_data_for_sp_calculation
-from gb_analysis.system_price_from_stack import get_new_system_prices_by_date_and_period
-import visualisation.plots_from_excel as plots_from_excel
-import data_processing.price_data_processing as price_data_processing
-from gb_analysis.calculate_npt_profit import calculate_npt_welfare_from_id_prices
-import p462_analysis.engine as engine
-import isem_analysis.api_interaction as api_interaction
-import isem_analysis.engine as isem_engine
-import isem_analysis.plotting as plotting
-import rnp_analysis.mip_analysis as mip_analysis
-import rnp_analysis.constraint_analysis as constraint_analysis
-import rnp_analysis.cadl_analysis as cadl_analysis
-import rnp_analysis.misc as misc
+
+import rnp_analysis.frequency_deviation_analysis as fda
 
 output_directory = '/Users/josephcary/Library/CloudStorage/OneDrive-Nexus365/Outlook/Investigations/P462 Mod/Code Testing'
 output_filename = '2021 - Nov 2024 Analysis'
@@ -39,8 +19,6 @@ url = 'https://reports.sem-o.com/documents/EF_PT_ALL_20250902_20250903_BALIMB_IN
 years = [2024]
 
 async def main():
-    mip_analysis.structural_break_test_from_excel('/Users/josephcary/Library/CloudStorage/OneDrive-Nexus365/Second Year/RNP/Analysis/Proportion MIPped By Month.xlsx')
-    plots_from_excel.create_q_q_plot('/Users/josephcary/Library/CloudStorage/OneDrive-Nexus365/Second Year/RNP/Analysis/cadl_system_sell_prices_2024-01-01_to_2024-12-31.xlsx', ['system_sell_price', 'recalculated_system_sell_price'], '/Users/josephcary/Library/CloudStorage/OneDrive-Nexus365/Second Year/RNP/Analysis', 'cadl_recalculated_system_sell_price_qq_plot')
-    await cadl_analysis.export_cadl_recalculated_system_sell_prices('2024-01-01', '2024-12-31', 5)
+    await fda.plot_frequency_repsonse('2025-09-08', 40)
     
 asyncio.run(main())
