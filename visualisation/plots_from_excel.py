@@ -6,6 +6,34 @@ import scipy.stats as stats
 import numpy as np
 from typing import Optional, Sequence, Dict
 
+MM_PER_INCH = 25.4
+ELSEVIER_DOUBLE_COLUMN_WIDTH_MM = 190
+ELSEVIER_ECDF_FIGURE_HEIGHT_MM = 110
+ELSEVIER_QQ_FIGURE_HEIGHT_MM = 100
+
+# Fixed categorical colours for the Factual/AMV/ZMV scenarios, held consistent
+# across every chart that shows them together (validated colourblind-safe triad).
+SCENARIO_COLORS = {
+    'AMV': '#2a78d6',
+    'ZMV': '#eb6834',
+    'Factual': '#1baf7a',
+}
+
+def _expand_ylim_until_legend_clears_bars(ax, legend, fig, max_iterations=12, step_fraction=0.08):
+    """Grow the y-axis top until the legend's rendered bbox no longer overlaps any bar."""
+    for _ in range(max_iterations):
+        fig.canvas.draw()
+        renderer = fig.canvas.get_renderer()
+        legend_bbox = legend.get_window_extent(renderer)
+        overlaps = any(
+            legend_bbox.overlaps(patch.get_window_extent(renderer))
+            for patch in ax.patches
+        )
+        if not overlaps:
+            return
+        y_lo, y_hi = ax.get_ylim()
+        ax.set_ylim(y_lo, y_hi + (y_hi - y_lo) * step_fraction)
+
 def violin_plot(
     input_data_filepath: str,
     headers_to_plot: list[str],
@@ -514,12 +542,22 @@ def create_ecdf_plot(
     sheet_name: str,
     columns: Optional[Dict[str, str]] = None,
     output_path: str = "ecdf_niv.pdf",
-    figsize=(8, 5),
-    fontsize=12,
+    figsize=(ELSEVIER_DOUBLE_COLUMN_WIDTH_MM / MM_PER_INCH, ELSEVIER_ECDF_FIGURE_HEIGHT_MM / MM_PER_INCH),
+    fontsize=9,
+    restrict_to_1st_99th_percentile: bool = False,
+    axis_margin_fraction: float = 0.05,
     save_svg: bool = False,
     save_eps: bool = False,
 ):
-
+    """
+    Plot the full empirical CDF of net imbalance volume for the Factual, AMV,
+    and ZMV scenarios. Each step curve is built from every data point; the
+    x-axis view is then restricted separately, so no data is dropped from the
+    underlying curves. When restrict_to_1st_99th_percentile is True (default),
+    the view is limited to the combined 1st-99th percentile range (padded by
+    axis_margin_fraction); when False, the full data range is shown (with the
+    same padding). Saved as a PDF sized for an Elsevier double-column figure.
+    """
     df = pd.read_excel(excel_path, sheet_name=sheet_name)
 
     expected = ['factual', 'AMV', 'ZMV']
@@ -552,13 +590,15 @@ def create_ecdf_plot(
     xz, yz = ecdf_values(s_z.values)
 
     # ------------------------------------------------------------
-    # Compute global x-limits (1st–99th percentile across all scenarios)
+    # View window only - the full curves above still contain every point.
     # ------------------------------------------------------------
     combined = np.concatenate([s_f.values, s_a.values, s_z.values])
-    x_lo = np.percentile(combined, 1)
-    x_hi = np.percentile(combined, 99)
-    x_lo = -1000
-    x_hi = 1000
+    if restrict_to_1st_99th_percentile:
+        x_lo, x_hi = np.percentile(combined, [1, 99])
+    else:
+        x_lo, x_hi = combined.min(), combined.max()
+    margin = (x_hi - x_lo) * axis_margin_fraction
+    x_lo, x_hi = x_lo - margin, x_hi + margin
 
     # ------------------------------------------------------------
     # Plot
@@ -567,18 +607,12 @@ def create_ecdf_plot(
     fig, ax = plt.subplots(figsize=figsize)
     plt.rcParams.update({'font.size': fontsize})
 
-    # Plot each ECDF only within the restricted x-range
-    def plot_trimmed(x, y, label, **kwargs):
-        if x.size == 0:
-            return
-        mask = (x >= x_lo) & (x <= x_hi)
-        if mask.sum() == 0:
-            return
-        ax.step(x[mask], y[mask], where='post', label=label, **kwargs)
-
-    plot_trimmed(xf, yf, 'Factual', linewidth=1.5)
-    plot_trimmed(xa, ya, 'AMV (no NPT)', linewidth=1.25, linestyle='--')
-    plot_trimmed(xz, yz, 'ZMV (no NPT)', linewidth=1.25, linestyle=':')
+    if xf.size:
+        ax.step(xf, yf, where='post', label='Factual', linewidth=1.5)
+    if xa.size:
+        ax.step(xa, ya, where='post', label='AMV (no NPT)', linewidth=1.25, linestyle='--')
+    if xz.size:
+        ax.step(xz, yz, where='post', label='ZMV (no NPT)', linewidth=1.25, linestyle=':')
 
     ax.set_xlabel('Net Imbalance Volume (MWh)')
     ax.set_ylabel('Empirical Cumulative Probability')
@@ -590,11 +624,104 @@ def create_ecdf_plot(
     ax.axvline(0, color='black', linestyle='--', linewidth=1)
     plt.tight_layout()
 
+    output_path = os.path.splitext(output_path)[0] + '.pdf'
     out_dir = os.path.dirname(os.path.abspath(output_path)) or '.'
     os.makedirs(out_dir, exist_ok=True)
 
     plt.savefig(output_path, format='pdf', bbox_inches='tight')
     base, ext = os.path.splitext(output_path)
+    if save_svg:
+        plt.savefig(base + '.svg', format='svg', bbox_inches='tight')
+    if save_eps:
+        plt.savefig(base + '.eps', format='eps', bbox_inches='tight')
+    plt.close(fig)
+
+    return os.path.abspath(output_path)
+
+def create_quantile_difference_plots(
+    excel_path: str,
+    sheet_name: str,
+    columns: Optional[Dict[str, str]] = None,
+    output_path: str = "quantile_differences.pdf",
+    figsize=(ELSEVIER_DOUBLE_COLUMN_WIDTH_MM / MM_PER_INCH, ELSEVIER_QQ_FIGURE_HEIGHT_MM / MM_PER_INCH),
+    fontsize=9,
+    n_quantiles: int = 200,
+    restrict_to_1st_99th_percentile: bool = True,
+    axis_margin_fraction: float = 0.05,
+    save_svg: bool = False,
+    save_eps: bool = False,
+) -> str:
+    """
+    Analogous to create_ecdf_plot: reads the same Factual/AMV/ZMV columns from
+    the given worksheet, but instead of the CDFs, plots two quantile-difference
+    (shift function) curves side by side in one figure:
+      (a) AMV - Factual
+      (b) ZMV - Factual
+    each showing quantile(scenario) - quantile(Factual) against the quantile
+    level. Quantiles are computed over a fine grid; when
+    restrict_to_1st_99th_percentile is True (default) the view (and the
+    plotted curve) is limited to the 1st-99th quantile level, padded by
+    axis_margin_fraction, since the 0th/100th percentile is just the sample
+    min/max and tends to be a noisy outlier.
+    Saved as a PDF sized for an Elsevier double-column figure.
+    """
+    df = pd.read_excel(excel_path, sheet_name=sheet_name)
+
+    expected = ['factual', 'AMV', 'ZMV']
+    if columns is None:
+        inferred = _infer_columns(df, expected)
+    else:
+        inferred = columns.copy()
+
+    missing = [k for k in expected if k not in inferred]
+    if missing:
+        raise ValueError(
+            "Missing scenario columns: "
+            f"{missing}. Available: {list(df.columns)}"
+        )
+
+    s_f = pd.Series(df[inferred['factual']]).dropna().astype(float)
+    s_a = pd.Series(df[inferred['AMV']]).dropna().astype(float)
+    s_z = pd.Series(df[inferred['ZMV']]).dropna().astype(float)
+
+    quantile_levels = np.linspace(0, 1, n_quantiles)
+    q_factual = np.quantile(s_f, quantile_levels)
+    q_amv = np.quantile(s_a, quantile_levels)
+    q_zmv = np.quantile(s_z, quantile_levels)
+
+    diff_amv = q_amv - q_factual
+    diff_zmv = q_zmv - q_factual
+    percentile_levels = quantile_levels * 100
+
+    if restrict_to_1st_99th_percentile:
+        x_lo, x_hi = 1, 99
+    else:
+        x_lo, x_hi = 0, 100
+    margin = (x_hi - x_lo) * axis_margin_fraction
+    mask = (percentile_levels >= x_lo) & (percentile_levels <= x_hi)
+
+    plt.close('all')
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=figsize, constrained_layout=True)
+    plt.rcParams.update({'font.size': fontsize})
+
+    for ax, diff_values, scenario_label, color, panel_title in (
+        (ax1, diff_amv, 'AMV', SCENARIO_COLORS['AMV'], '(a)'),
+        (ax2, diff_zmv, 'ZMV', SCENARIO_COLORS['ZMV'], '(b)'),
+    ):
+        ax.plot(percentile_levels[mask], diff_values[mask], color=color, linewidth=1.5)
+        ax.axhline(0, color='black', linestyle='--', linewidth=1)
+        ax.set_xlim(x_lo - margin, x_hi + margin)
+        ax.set_xlabel('Quantile (%)')
+        ax.set_ylabel(f'{scenario_label} − Factual Quantile Difference (MWh)')
+        ax.grid(axis='y', linestyle='--', linewidth=0.5, alpha=0.7)
+        ax.set_title(panel_title, loc='left', fontweight='bold')
+
+    output_path = os.path.splitext(output_path)[0] + '.pdf'
+    out_dir = os.path.dirname(os.path.abspath(output_path)) or '.'
+    os.makedirs(out_dir, exist_ok=True)
+
+    plt.savefig(output_path, format='pdf', bbox_inches='tight')
+    base, _ = os.path.splitext(output_path)
     if save_svg:
         plt.savefig(base + '.svg', format='svg', bbox_inches='tight')
     if save_eps:
@@ -611,89 +738,178 @@ def create_difference_bar_chart_from_raw(
     amv_col: str = "AMV",
     zmv_col: str = "ZMV",
     output_path: str = "niv_differences_by_year.pdf",
-    figsize=(7, 4),
-    fontsize=12,
+    figsize=(ELSEVIER_DOUBLE_COLUMN_WIDTH_MM / MM_PER_INCH, ELSEVIER_QQ_FIGURE_HEIGHT_MM / MM_PER_INCH),
+    fontsize=9,
     aggfunc="sum",   # or "mean"
     save_svg: bool = False,
     save_eps: bool = False,
-):
+) -> str:
     """
-    Read raw (row-level) Excel data, aggregate by `year_col`, compute AMV–Factual and ZMV–Factual
-    per year, and produce a grouped bar chart saved as a vector file suitable for Overleaf.
-
-    Parameters
-    ----------
-    excel_path : str
-        Path to the Excel file.
-    sheet_name : str
-        Sheet name (or index).
-    year_col, factual_col, amv_col, zmv_col : str
-        Column names in the sheet.
-    output_path : str
-        Output file path (PDF by default).
-    aggfunc : {"sum","mean"} or callable
-        How to aggregate rows within each year.
+    Read raw (row-level) Excel data, aggregate by year_col, and plot a grouped
+    bar chart of (AMV - Factual) and (ZMV - Factual) BM cost by year (each
+    scenario column aggregated via aggfunc within the year, then differenced).
+    AMV/ZMV use a fixed colour each, consistent with
+    create_absolute_imbalance_difference_bar_chart. Saved as a PDF sized for
+    an Elsevier single-column figure.
     """
-    # Read data
     df = pd.read_excel(excel_path, sheet_name=sheet_name)
 
     if year_col not in df.columns:
         raise KeyError(f"Year column '{year_col}' not found in sheet. Available columns: {list(df.columns)}")
 
-    # Ensure numeric columns exist
     for c in (factual_col, amv_col, zmv_col):
         if c not in df.columns:
             raise KeyError(f"Required column '{c}' not found in sheet. Available columns: {list(df.columns)}")
-        # coerce to numeric, allow errors -> NaN
         df[c] = pd.to_numeric(df[c], errors="coerce")
 
-    # Normalize year column (if datetime-like, extract year)
     if pd.api.types.is_datetime64_any_dtype(df[year_col]):
         df["_year_norm"] = df[year_col].dt.year
     else:
-        # Try integer conversion (handles strings like "2021")
         df["_year_norm"] = pd.to_numeric(df[year_col], errors="coerce").astype('Int64')
 
     if df["_year_norm"].isna().any():
         raise ValueError("Some Year values could not be parsed as years. Check the Year column.")
 
-    # Aggregate by year
     if aggfunc == "sum":
         agg = df.groupby("_year_norm")[[factual_col, amv_col, zmv_col]].sum(min_count=1)
     elif aggfunc == "mean":
         agg = df.groupby("_year_norm")[[factual_col, amv_col, zmv_col]].mean()
     else:
-        # allow callable
         agg = df.groupby("_year_norm")[[factual_col, amv_col, zmv_col]].agg(aggfunc)
-
     agg = agg.sort_index()
     years = list(agg.index.astype(int))
+    x = list(range(len(years)))
 
-    # Compute differences
-    diff_amv = (agg[amv_col] - agg[factual_col])/1000000  # Convert to TWh
-    diff_zmv = (agg[zmv_col] - agg[factual_col])/1000000  # Convert to TWh
+    diff_amv = (agg[amv_col] - agg[factual_col]) / 1_000_000  # £ -> £m
+    diff_zmv = (agg[zmv_col] - agg[factual_col]) / 1_000_000  # £ -> £m
 
-    # Plot
     plt.close('all')
-    fig, ax = plt.subplots(figsize=figsize)
+    fig, ax = plt.subplots(figsize=figsize, constrained_layout=True)
     plt.rcParams.update({'font.size': fontsize})
 
-    x = list(range(len(years)))
     bar_width = 0.35
+    ax.bar([i - bar_width / 2 for i in x], diff_amv, width=bar_width,
+           label="AMV – Factual", color=SCENARIO_COLORS['AMV'])
+    ax.bar([i + bar_width / 2 for i in x], diff_zmv, width=bar_width,
+           label="ZMV – Factual", color=SCENARIO_COLORS['ZMV'])
 
-    ax.bar([i - bar_width/2 for i in x], diff_amv, width=bar_width, label="AMV – Factual")
-    ax.bar([i + bar_width/2 for i in x], diff_zmv, width=bar_width, label="ZMV – Factual")
-
+    ax.axhline(0, color='black', linewidth=0.8)
     ax.set_xticks(x)
     ax.set_xticklabels(years)
     ax.set_xlabel("Year")
-    ax.set_ylabel("Difference in BM costs (£m, nominal)")
+    ax.set_ylabel("Difference in BM Costs\n(£m, nominal)")
     ax.ticklabel_format(axis='y', style='plain')
     ax.grid(axis='y', linestyle='--', linewidth=0.5, alpha=0.7)
-    ax.legend(frameon=False)
-    plt.tight_layout()
+    legend = ax.legend(frameon=False, loc='upper left')
+    _expand_ylim_until_legend_clears_bars(ax, legend, fig)
 
-    # Save vector output
+    output_path = os.path.splitext(output_path)[0] + '.pdf'
+    out_dir = os.path.dirname(os.path.abspath(output_path)) or '.'
+    os.makedirs(out_dir, exist_ok=True)
+
+    plt.savefig(output_path, format='pdf', bbox_inches='tight')
+    base, _ = os.path.splitext(output_path)
+    if save_svg:
+        plt.savefig(base + '.svg', format='svg', bbox_inches='tight')
+    if save_eps:
+        plt.savefig(base + '.eps', format='eps', bbox_inches='tight')
+    plt.close(fig)
+
+    return os.path.abspath(output_path)
+
+def create_absolute_imbalance_difference_bar_chart(
+    excel_path: str,
+    sheet_name: str,
+    year_col: str = "Year",
+    factual_col: str = "Factual",
+    amv_col: str = "AMV",
+    zmv_col: str = "ZMV",
+    output_path: str = "absolute_imbalance_differences_by_year.pdf",
+    figsize=(ELSEVIER_DOUBLE_COLUMN_WIDTH_MM / MM_PER_INCH, ELSEVIER_QQ_FIGURE_HEIGHT_MM / MM_PER_INCH),
+    fontsize=9,
+    save_svg: bool = False,
+    save_eps: bool = False,
+) -> str:
+    """
+    Read raw (row-level) Excel data, aggregate by year_col, and plot a two-panel
+    figure:
+      (a) grouped bar chart of (AMV - Factual) and (ZMV - Factual) total absolute
+          imbalance volume by year (each scenario column summed as absolute
+          values within the year, then differenced)
+      (b) grouped bar chart of the average Factual/AMV/ZMV imbalance volume per
+          settlement period, by year
+    Factual/AMV/ZMV use a fixed colour each, consistent across both panels.
+    Saved as a PDF sized for an Elsevier double-column figure.
+    """
+    df = pd.read_excel(excel_path, sheet_name=sheet_name)
+
+    if year_col not in df.columns:
+        raise KeyError(f"Year column '{year_col}' not found in sheet. Available columns: {list(df.columns)}")
+
+    for c in (factual_col, amv_col, zmv_col):
+        if c not in df.columns:
+            raise KeyError(f"Required column '{c}' not found in sheet. Available columns: {list(df.columns)}")
+        df[c] = pd.to_numeric(df[c], errors="coerce")
+
+    if pd.api.types.is_datetime64_any_dtype(df[year_col]):
+        df["_year_norm"] = df[year_col].dt.year
+    else:
+        df["_year_norm"] = pd.to_numeric(df[year_col], errors="coerce").astype('Int64')
+
+    if df["_year_norm"].isna().any():
+        raise ValueError("Some Year values could not be parsed as years. Check the Year column.")
+
+    abs_values = df[[factual_col, amv_col, zmv_col]].abs()
+    abs_agg = abs_values.groupby(df["_year_norm"]).sum(min_count=1).sort_index()
+    years = list(abs_agg.index.astype(int))
+    x = list(range(len(years)))
+
+    diff_amv = (abs_agg[amv_col] - abs_agg[factual_col]) / 1_000_000  # MWh -> TWh
+    diff_zmv = (abs_agg[zmv_col] - abs_agg[factual_col]) / 1_000_000  # MWh -> TWh
+
+    mean_agg = df.groupby("_year_norm")[[factual_col, amv_col, zmv_col]].mean().sort_index()
+
+    plt.close('all')
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=figsize, constrained_layout=True)
+    plt.rcParams.update({'font.size': fontsize})
+
+    # (a) Difference in total absolute imbalance volume by year
+    bar_width_a = 0.35
+    ax1.bar([i - bar_width_a / 2 for i in x], diff_amv, width=bar_width_a,
+            label="AMV – Factual", color=SCENARIO_COLORS['AMV'])
+    ax1.bar([i + bar_width_a / 2 for i in x], diff_zmv, width=bar_width_a,
+            label="ZMV – Factual", color=SCENARIO_COLORS['ZMV'])
+
+    ax1.axhline(0, color='black', linewidth=0.8)
+    ax1.set_xticks(x)
+    ax1.set_xticklabels(years)
+    ax1.set_xlabel("Year")
+    ax1.set_ylabel("Difference in Total Absolute\nImbalance Volume (TWh)")
+    ax1.grid(axis='y', linestyle='--', linewidth=0.5, alpha=0.7)
+    legend1 = ax1.legend(frameon=False, loc='upper left')
+    ax1.set_title('(a)', loc='left', fontweight='bold')
+    _expand_ylim_until_legend_clears_bars(ax1, legend1, fig)
+
+    # (b) Average imbalance volume per settlement period, by year
+    bar_width_b = 0.25
+    ax2.bar([i - bar_width_b for i in x], mean_agg[factual_col], width=bar_width_b,
+            label="Factual", color=SCENARIO_COLORS['Factual'])
+    ax2.bar(x, mean_agg[amv_col], width=bar_width_b,
+            label="AMV", color=SCENARIO_COLORS['AMV'])
+    ax2.bar([i + bar_width_b for i in x], mean_agg[zmv_col], width=bar_width_b,
+            label="ZMV", color=SCENARIO_COLORS['ZMV'])
+
+    ax2.axhline(0, color='black', linewidth=0.8)
+    ax2.set_xticks(x)
+    ax2.set_xticklabels(years)
+    ax2.set_xlabel("Year")
+    ax2.set_ylabel("Average Period Imbalance Volume (MWh)")
+    ax2.grid(axis='y', linestyle='--', linewidth=0.5, alpha=0.7)
+    legend2 = ax2.legend(frameon=False, loc='upper left')
+    ax2.set_title('(b)', loc='left', fontweight='bold')
+    _expand_ylim_until_legend_clears_bars(ax2, legend2, fig)
+
+    output_path = os.path.splitext(output_path)[0] + '.pdf'
     out_dir = os.path.dirname(os.path.abspath(output_path)) or '.'
     os.makedirs(out_dir, exist_ok=True)
 
@@ -794,6 +1010,100 @@ def create_qq_plots(
 
     plt.close(fig)
     return os.path.abspath(output_path)
+
+def create_outturn_diff_qq_plots(
+    excel_path: str,
+    sheet_name: str,
+    outturn_col: str = "Outturn Diff",
+    amv_col: str = "AMV Diff",
+    zmv_col: str = "ZMV Diff",
+    output_filename: Optional[str] = None,
+    figsize: Optional[tuple] = None,
+    fontsize: int = 9,
+    n_quantiles: int = 200,
+    restrict_to_1st_99th_percentile: bool = True,
+    axis_margin_fraction: float = 0.05,
+) -> str:
+    """
+    Create a publication-ready two-panel Q-Q figure, sized to an Elsevier
+    (elsarticle) double-column figure width:
+      • Left panel: Factual vs AMV System Price - Intraday Price
+      • Right panel: Factual vs ZMV System Price - Intraday Price
+    Quantiles are computed over a fine grid to preserve distribution shape. When
+    restrict_to_1st_99th_percentile is True (default), each axis is limited to its
+    own 1st-99th percentile range so outliers don't compress the plot; when False,
+    the full quantile range is shown. Either way, axis limits are padded by
+    axis_margin_fraction so the boundary points aren't drawn right on the edge.
+    Saved as a PDF alongside the input Excel file.
+    """
+    if figsize is None:
+        figsize = (ELSEVIER_DOUBLE_COLUMN_WIDTH_MM / MM_PER_INCH, ELSEVIER_QQ_FIGURE_HEIGHT_MM / MM_PER_INCH)
+
+    df = pd.read_excel(excel_path, sheet_name=sheet_name)
+    quantile_levels = np.linspace(0, 1, n_quantiles)
+
+    def qq_pair(col_a: str, col_b: str):
+        a = pd.to_numeric(df[col_a], errors="coerce").dropna()
+        b = pd.to_numeric(df[col_b], errors="coerce").dropna()
+        return np.quantile(a, quantile_levels), np.quantile(b, quantile_levels)
+
+    def axis_limits(values: np.ndarray) -> tuple[float, float]:
+        if restrict_to_1st_99th_percentile:
+            lo, hi = np.percentile(values, [1, 99])
+        else:
+            lo, hi = values.min(), values.max()
+        margin = (hi - lo) * axis_margin_fraction
+        return lo - margin, hi + margin
+
+    x_label = 'Quantiles of Factual System Price\n- Intraday Price (£/MWh)'
+    y_label_template = 'Quantiles of {} System Price\n- Intraday Price (£/MWh)'
+
+    x_amv, y_amv = qq_pair(outturn_col, amv_col)
+    x_zmv, y_zmv = qq_pair(outturn_col, zmv_col)
+
+    plt.close('all')
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=figsize, constrained_layout=True)
+    plt.rcParams.update({'font.size': fontsize})
+
+    ax1.scatter(x_amv, y_amv, s=12, color=SCENARIO_COLORS['AMV'])
+    x1_lo, x1_hi = axis_limits(x_amv)
+    y1_lo, y1_hi = axis_limits(y_amv)
+    lims1 = [min(x1_lo, y1_lo), max(x1_hi, y1_hi)]
+    ax1.plot(lims1, lims1, color='black', linewidth=1)
+    ax1.set_xlim(x1_lo, x1_hi)
+    ax1.set_ylim(y1_lo, y1_hi)
+    ax1.set_xlabel(x_label)
+    ax1.set_ylabel(y_label_template.format('AMV'))
+    ax1.grid(True, linestyle='--', linewidth=0.4, alpha=0.7)
+
+    ax2.scatter(x_zmv, y_zmv, s=12, color=SCENARIO_COLORS['ZMV'])
+    x2_lo, x2_hi = axis_limits(x_zmv)
+    y2_lo, y2_hi = axis_limits(y_zmv)
+    lims2 = [min(x2_lo, y2_lo), max(x2_hi, y2_hi)]
+    ax2.plot(lims2, lims2, color='black', linewidth=1)
+    ax2.set_xlim(x2_lo, x2_hi)
+    ax2.set_ylim(y2_lo, y2_hi)
+    ax2.set_xlabel(x_label)
+    ax2.set_ylabel(y_label_template.format('ZMV'))
+    ax2.grid(True, linestyle='--', linewidth=0.4, alpha=0.7)
+
+    output_directory = os.path.dirname(os.path.abspath(excel_path))
+    if output_filename is None:
+        base_name = os.path.splitext(os.path.basename(excel_path))[0]
+        output_filename = f'{base_name}_outturn_vs_amv_zmv_qq_plots.pdf'
+    if not output_filename.lower().endswith('.pdf'):
+        output_filename = os.path.splitext(output_filename)[0] + '.pdf'
+
+    output_filepath = os.path.join(output_directory, output_filename)
+    if os.path.exists(output_filepath):
+        stem, ext = os.path.splitext(output_filename)
+        output_filename = f"{stem}_{pd.Timestamp.now().strftime('%Y-%m-%d_%H-%M-%S')}{ext}"
+        output_filepath = os.path.join(output_directory, output_filename)
+
+    plt.savefig(output_filepath, format='pdf', bbox_inches='tight')
+    plt.close(fig)
+
+    return output_filepath
 
 def create_boxplots(
     excel_path: str,

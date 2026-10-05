@@ -68,6 +68,7 @@ async def run(
     npt_cashflows_df = pd.concat(npt_cashflows)
     mefs_df = pd.concat(mefs)
     missing_data_df = pd.DataFrame(list(all_missing_data), columns=['settlement_date', 'settlement_period'])
+    missing_data_df = excel_interaction.order_by_settlement_date_and_period(missing_data_df)
     summary_df = create_summary_table(system_prices_df, system_imbalances_df, balancing_costs_df, so_cashflows_df, supplier_cashflows_df, generator_cashflows_df, intraday_cashflows_df, mefs_df)
     
     sheet_names_dict = {
@@ -147,9 +148,9 @@ async def run_by_month(
     
     # Recalculate imbalance cashflows
     npt_bsc_ids = [bsc_id for bsc_id, is_npt in bsc_roles_to_npt_mapping.items() if is_npt]
-    so_cashflows_df = recalculate_imbalance_cashflows.get_recalculated_imbalance_cashflows_SO(new_system_prices_by_date_and_period_df, mr1b_df, npt_bsc_ids)
-    supplier_cashflows_df = recalculate_imbalance_cashflows.recalculate_imbalance_cashflows_by_bsc_party_type(bsc_roles_to_supplier_mapping, new_system_prices_by_date_and_period_df, mr1b_df, npt_bsc_ids)
-    generator_cashflows_df = recalculate_imbalance_cashflows.recalculate_imbalance_cashflows_by_bsc_party_type(bsc_roles_to_generator_mapping, new_system_prices_by_date_and_period_df, mr1b_df, npt_bsc_ids)
+    so_cashflows_df = recalculate_imbalance_cashflows.get_recalculated_imbalance_cashflows_SO(new_system_prices_by_date_and_period_df, mr1b_df, npt_bsc_ids, zero_metered_volume_only)
+    supplier_cashflows_df = recalculate_imbalance_cashflows.recalculate_imbalance_cashflows_by_bsc_party_type(bsc_roles_to_supplier_mapping, new_system_prices_by_date_and_period_df, mr1b_df, npt_bsc_ids, zero_metered_volume_only)
+    generator_cashflows_df = recalculate_imbalance_cashflows.recalculate_imbalance_cashflows_by_bsc_party_type(bsc_roles_to_generator_mapping, new_system_prices_by_date_and_period_df, mr1b_df, npt_bsc_ids, zero_metered_volume_only)
     npt_cashflows_df = recalculate_imbalance_cashflows.calculate_net_npt_cashflow(bsc_roles_to_npt_mapping, mr1b_df)
     marginal_emissions_df = carbon_emissions.calculate_marginal_emissions(full_ascending_settlement_stack_by_date_and_period, new_settlement_stacks_by_date_and_period, system_imbalance_with_and_without_npts_df, bmu_id_to_ci_mapping)
     
@@ -198,11 +199,11 @@ async def run_by_month(
     print(f"Completed {year}-{month}")
     
     # Append to lists
-    system_prices.append(recalculated_system_prices)
-    system_imbalances.append(system_imbalance_with_and_without_npts_df)
+    system_prices.append(system_prices_df)
+    system_imbalances.append(system_imbalances_df)
     balancing_costs.append(balancing_costs_df)
-    original_balancing_revenue.append(original_balancing_revenue_by_group_df)
-    new_balancing_revenue.append(new_balancing_revenue_by_group_df)
+    original_balancing_revenue.append(original_balancing_revenue_df)
+    new_balancing_revenue.append(new_balancing_revenue_df)
     so_cashflows.append(so_cashflows_df)
     supplier_cashflows.append(supplier_cashflows_df)
     generator_cashflows.append(generator_cashflows_df)
@@ -280,3 +281,35 @@ def determine_supplier_net_position(
     combined_results_df = pd.concat(combined_results)
     file_name = f'supplier_net_positions_{years[0]}-{months[0]}_to_{years[-1]}-{months[-1]}'
     excel_interaction.dataframes_to_excel([combined_results_df], output_file_directory, file_name, ['Supplier Net Positions'])
+    
+def determine_generator_net_position(
+    years: list[int],
+    months: list[int],
+    bsc_roles_filepath: str,
+    output_file_directory: str
+) -> None:
+    mr1b_filepaths = excel_interaction.get_excel_filepaths('/Users/josephcary/Library/CloudStorage/OneDrive-Nexus365/First Year/Data/Elexon/MR1B Excel Reports')
+    filepath_dict = excel_interaction.create_filepath_dict(mr1b_filepaths)
+    bsc_id_to_strict_generator_mapping = recalculate_niv.get_bsc_roles_to_generator_mapping(bsc_roles_filepath, True)
+    bsc_id_to_loose_generator_mapping = recalculate_niv.get_bsc_roles_to_generator_mapping(bsc_roles_filepath, False)
+    combined_results = []
+    for year in years:
+        for month in months:
+            year_month = datetime.date(year, month, 1).strftime('%Y-%m')
+            mr1b_filepath = filepath_dict[year_month.replace('-', '_')]
+            mr1b_df = pd.read_excel(mr1b_filepath)
+            mr1b_df = mr1b_df.map(lambda x: x.strip() if isinstance(x, str) else x)
+            strict_generator_mr1b_df = mr1b_df[mr1b_df['Party ID'].map(bsc_id_to_strict_generator_mapping) == True]
+            loose_generator_mr1b_df = mr1b_df[mr1b_df['Party ID'].map(bsc_id_to_loose_generator_mapping) == True]
+            strict_generator_grouped = strict_generator_mr1b_df.groupby(['Settlement Date', 'Settlement Period'])['Energy Imbalance Vol'].sum().reset_index()
+            strict_generator_grouped.columns = ['settlement_date', 'settlement_period', 'strict_generator_total_imbalance']
+            loose_generator_grouped = loose_generator_mr1b_df.groupby(['Settlement Date', 'Settlement Period'])['Energy Imbalance Vol'].sum().reset_index()
+            loose_generator_grouped.columns = ['settlement_date', 'settlement_period', 'loose_generator_total_imbalance']
+            combined_df = strict_generator_grouped.merge(loose_generator_grouped, on=['settlement_date', 'settlement_period'], how='outer')
+            combined_results.append(combined_df)
+            print(f"Determined generator net positions for {year}-{month}")
+    
+    combined_results_df = pd.concat(combined_results)
+    file_name = f'generator_net_positions_{years[0]}-{months[0]}_to_{years[-1]}-{months[-1]}'
+    excel_interaction.dataframes_to_excel([combined_results_df], output_file_directory, file_name, ['Generator Net Positions'])
+    
